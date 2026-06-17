@@ -7,10 +7,15 @@
 const OVERLAY_ID = 'letras-jp-overlay';
 
 export default defineContentScript({
-  matches: ['*://www.youtube.com/watch*'],
+  // Inyecta en TODO www.youtube.com (no solo /watch): YouTube es una SPA y solo
+  // inyecta content scripts según la URL al cargar la pestaña, no en las navegaciones
+  // internas. Cargando en todo el dominio podemos reaccionar a `yt-navigate-finish`
+  // y activarnos al entrar a /watch. El filtro real de /watch va dentro de init().
+  matches: ['*://www.youtube.com/*'],
   runAt: 'document_idle',
 
   main(ctx) {
+    console.log('[letras-jp] content script cargado en', location.href);
     // Estado vivo de la instancia actual (se descarta en cada reinicialización).
     let overlay: HTMLElement | null = null;
     let video: HTMLVideoElement | null = null;
