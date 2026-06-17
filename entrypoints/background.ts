@@ -52,9 +52,12 @@ async function handleGetLyrics(query: TrackQuery): Promise<GetLyricsResponse> {
 // --- Offscreen (tokenizador kuromoji) -------------------------------------
 let creatingOffscreen: Promise<void> | null = null;
 
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 async function ensureOffscreen(): Promise<void> {
   if (await chrome.offscreen.hasDocument()) return;
   if (creatingOffscreen) return creatingOffscreen;
+  console.log('[letras-jp] background: creando offscreen document');
   creatingOffscreen = chrome.offscreen
     .createDocument({
       url: OFFSCREEN_URL,
@@ -70,12 +73,28 @@ async function ensureOffscreen(): Promise<void> {
   return creatingOffscreen;
 }
 
+function isNoReceiver(msg: string): boolean {
+  return /Receiving end does not exist|Could not establish connection/i.test(msg);
+}
+
 async function handleTokenize(text: string): Promise<TokenizeResponse> {
   try {
     await ensureOffscreen();
     const relay: OffscreenTokenizeMessage = { target: 'offscreen', type: 'TOKENIZE', text };
-    const res = (await browser.runtime.sendMessage(relay)) as TokenizeResponse | undefined;
-    return res ?? { tokens: null, error: 'sin respuesta del offscreen' };
+    // El offscreen puede tardar en registrar su listener tras createDocument:
+    // reintentamos el relé mientras "no hay receptor".
+    let lastErr = '';
+    for (let i = 0; i < 40; i++) {
+      try {
+        const res = (await browser.runtime.sendMessage(relay)) as TokenizeResponse | undefined;
+        return res ?? { tokens: null, error: 'sin respuesta del offscreen' };
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+        if (!isNoReceiver(lastErr)) throw e;
+        await delay(150); // espera a que el offscreen esté escuchando
+      }
+    }
+    return { tokens: null, error: lastErr || 'el offscreen no respondió' };
   } catch (e) {
     return { tokens: null, error: e instanceof Error ? e.message : String(e) };
   }
