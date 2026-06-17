@@ -20,29 +20,31 @@ export function namesOverlap(a: string | undefined, b: string | undefined): bool
 }
 
 /**
- * Cuántas señales coinciden (0, 1 o 2): artista y/o título.
- * Sirve para rankear candidatos (2 = muy fiable; 1 = aceptable).
- * Nota: artista y título pueden estar en scripts distintos entre YouTube y la fuente
- * (katakana vs romaji, kanji vs romaji), por eso basta con que coincida UNO.
+ * Cuántas señales del candidato CANÓNICO aparecen en el texto del video (0, 1 o 2):
+ * - su título aparece en el texto del video, y/o
+ * - su artista aparece en el texto del video O en el nombre del canal.
+ * Comparamos los nombres canónicos de la fuente contra el título limpio del video
+ * (no al revés), así no hace falta partir bien el título de YouTube. Como artista y
+ * título pueden estar en scripts distintos (katakana/kanji/romaji), basta con UNO.
  */
 export function relevanceScore(
   candTitle: string | undefined,
   candArtist: string | undefined,
-  queryTitle: string,
-  queryArtist?: string,
+  videoText: string,
+  channel?: string,
 ): number {
   let n = 0;
-  if (queryArtist && queryArtist.trim() && namesOverlap(candArtist, queryArtist)) n++;
-  if (namesOverlap(candTitle, queryTitle)) n++;
+  if (namesOverlap(videoText, candTitle)) n++;
+  if (namesOverlap(videoText, candArtist) || (channel ? namesOverlap(channel, candArtist) : false)) n++;
   return n;
 }
 
-/** Relevante si coincide el artista O el título (al menos una señal). */
+/** Relevante si aparece el título O el artista (al menos una señal). */
 export function isRelevant(
   candTitle: string | undefined,
   candArtist: string | undefined,
-  queryTitle: string,
-  queryArtist?: string,
+  videoText: string,
+  channel?: string,
 ): boolean {
-  return relevanceScore(candTitle, candArtist, queryTitle, queryArtist) > 0;
+  return relevanceScore(candTitle, candArtist, videoText, channel) > 0;
 }

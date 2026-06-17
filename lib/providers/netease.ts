@@ -2,6 +2,7 @@
 // Gran cobertura japonesa, incluido artistas en kanji. Letra sincronizada por línea (LRC).
 // Off por defecto; el usuario la activa. Ver .claude/rules/lyrics-providers.md y security.md.
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
+import type { ManualCandidate } from '../messaging';
 import { lrcToDoc, parseLrc } from './lrc';
 import { isRelevant, relevanceScore } from '../normalizer/match';
 import { fetchJson } from './http';
@@ -19,7 +20,7 @@ interface NeteaseSong {
 }
 
 function buildQuery(q: TrackQuery): string {
-  return [q.artist, q.title].filter(Boolean).join(' ');
+  return [q.rawTitle ?? q.title, q.channel ?? q.artist].filter(Boolean).join(' ');
 }
 
 function songArtist(s: NeteaseSong): string {
@@ -33,11 +34,13 @@ function songArtist(s: NeteaseSong): string {
  */
 export function pickSong(songs: unknown, query: TrackQuery): NeteaseSong | null {
   if (!Array.isArray(songs)) return null;
+  const videoText = query.rawTitle ?? query.title;
+  const channel = query.channel ?? query.artist;
   const valid = songs.filter(
     (s): s is NeteaseSong =>
       !!s &&
       typeof (s as NeteaseSong).id === 'number' &&
-      isRelevant((s as NeteaseSong).name, songArtist(s as NeteaseSong), query.title, query.artist),
+      isRelevant((s as NeteaseSong).name, songArtist(s as NeteaseSong), videoText, channel),
   );
   if (valid.length === 0) return null;
   const dur = query.durationSec;
@@ -49,8 +52,8 @@ export function pickSong(songs: unknown, query: TrackQuery): NeteaseSong | null 
 
   // Prefiere más señales coincidentes (artista+título); luego, duración más cercana.
   pool.sort((a, b) => {
-    const sa = relevanceScore(a.name, songArtist(a), query.title, query.artist);
-    const sb = relevanceScore(b.name, songArtist(b), query.title, query.artist);
+    const sa = relevanceScore(a.name, songArtist(a), videoText, channel);
+    const sb = relevanceScore(b.name, songArtist(b), videoText, channel);
     if (sa !== sb) return sb - sa;
     if (dur == null) return 0;
     return Math.abs((a.duration ?? Infinity) / 1000 - dur) - Math.abs((b.duration ?? Infinity) / 1000 - dur);
@@ -66,6 +69,39 @@ export function neteaseLrcToDoc(lrc: string, durationSec?: number): LyricsDoc | 
   const entries = parseLrc(lrc).filter((e) => e.text.length > 0 && !CREDIT.test(e.text));
   if (entries.length === 0) return null;
   return lrcToDoc(entries, 'netease', durationSec);
+}
+
+// --- Búsqueda manual + traer por id (fallback con selección) ---------------
+export async function neteaseManualSearch(text: string): Promise<ManualCandidate[]> {
+  const body = new URLSearchParams({ s: text, type: '1', limit: '10', offset: '0' }).toString();
+  const search = (await fetchJson(
+    `${BASE}/api/search/get`,
+    { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body },
+    TIMEOUT_MS,
+  )) as { result?: { songs?: unknown } } | null;
+  const songs = search?.result?.songs;
+  if (!Array.isArray(songs)) return [];
+  return songs
+    .filter((s): s is NeteaseSong => !!s && typeof (s as NeteaseSong).id === 'number')
+    .map((s) => ({
+      source: 'netease',
+      id: s.id,
+      artist: songArtist(s),
+      title: s.name ?? '',
+      durationSec: typeof s.duration === 'number' ? s.duration / 1000 : undefined,
+      hasSynced: true,
+    }));
+}
+
+export async function neteaseGetById(id: string | number, durationSec?: number): Promise<LyricsDoc | null> {
+  const lyr = (await fetchJson(
+    `${BASE}/api/song/lyric?os=pc&lv=-1&kv=-1&tv=-1&id=${id}`,
+    undefined,
+    TIMEOUT_MS,
+  )) as { lrc?: { lyric?: unknown } } | null;
+  const lrc = lyr?.lrc?.lyric;
+  if (typeof lrc !== 'string') return null;
+  return neteaseLrcToDoc(lrc, durationSec);
 }
 
 export const neteaseProvider: LyricsProvider = {

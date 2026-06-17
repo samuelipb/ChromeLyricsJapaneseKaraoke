@@ -7,8 +7,9 @@ import type {
   OffscreenTokenizeMessage,
   TokenizeResponse,
 } from '../lib/messaging';
-import { lrclibPlainProvider, lrclibProvider } from '../lib/providers/lrclib';
-import { neteaseProvider } from '../lib/providers/netease';
+import type { ManualCandidate, SearchManualResponse } from '../lib/messaging';
+import { lrclibGetById, lrclibManualSearch, lrclibPlainProvider, lrclibProvider } from '../lib/providers/lrclib';
+import { neteaseGetById, neteaseManualSearch, neteaseProvider } from '../lib/providers/netease';
 
 // Cadena de proveedores POR PRIORIDAD. NetEase (opt-in) se intercala entre la
 // sincronizada de LRCLIB y el texto plano, solo si el usuario lo activó en ajustes.
@@ -139,6 +140,42 @@ function isNoReceiver(msg: string): boolean {
   return /Receiving end does not exist|Could not establish connection/i.test(msg);
 }
 
+async function extraSourcesEnabled(): Promise<boolean> {
+  try {
+    const got = await browser.storage.local.get('settings');
+    return (got.settings as { extraSources?: boolean } | undefined)?.extraSources === true;
+  } catch {
+    return false;
+  }
+}
+
+async function handleSearchManual(text: string): Promise<SearchManualResponse> {
+  const candidates: ManualCandidate[] = [];
+  try {
+    candidates.push(...(await lrclibManualSearch(text)));
+  } catch {
+    /* sigue con lo que haya */
+  }
+  if (await extraSourcesEnabled()) {
+    try {
+      candidates.push(...(await neteaseManualSearch(text)));
+    } catch {
+      /* idem */
+    }
+  }
+  return { candidates };
+}
+
+async function handleGetById(source: string, id: string | number, durationSec?: number): Promise<GetLyricsResponse> {
+  let doc: GetLyricsResponse['doc'] = null;
+  try {
+    doc = source === 'netease' ? await neteaseGetById(id, durationSec) : await lrclibGetById(id, durationSec);
+  } catch {
+    doc = null;
+  }
+  return { doc, source: doc ? source : null, cached: false };
+}
+
 async function handleTokenize(text: string): Promise<TokenizeResponse> {
   try {
     await ensureOffscreen();
@@ -168,7 +205,9 @@ export default defineBackground(() => {
   // IMPORTANTE: registrar el listener de mensajes PRIMERO, para que la búsqueda de
   // letra funcione aunque algo del icono/insignia falle.
   browser.runtime.onMessage.addListener(
-    (message: ExtMessage): Promise<GetLyricsResponse | TokenizeResponse> | undefined => {
+    (
+      message: ExtMessage,
+    ): Promise<GetLyricsResponse | TokenizeResponse | SearchManualResponse> | undefined => {
       if (message?.type === 'GET_LYRICS') {
         return handleGetLyrics(message.query, message.force).catch(
           () => ({ doc: null, source: null, cached: false }) satisfies GetLyricsResponse,
@@ -176,6 +215,14 @@ export default defineBackground(() => {
       }
       if (message?.type === 'TOKENIZE') {
         return handleTokenize(message.text);
+      }
+      if (message?.type === 'SEARCH_MANUAL') {
+        return handleSearchManual(message.query).catch(() => ({ candidates: [] }) satisfies SearchManualResponse);
+      }
+      if (message?.type === 'GET_BY_ID') {
+        return handleGetById(message.source, message.id, message.durationSec).catch(
+          () => ({ doc: null, source: null, cached: false }) satisfies GetLyricsResponse,
+        );
       }
       return undefined;
     },

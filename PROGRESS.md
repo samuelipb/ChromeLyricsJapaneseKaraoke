@@ -6,7 +6,18 @@
 
 ---
 
-## 📍 Estado actual  (checkpoint — usuario sin tokens, retomar aquí)
+## 📍 Estado actual
+- **Fases 0–6 COMPLETADAS** y en `main` (tags `fase-0`…`fase-6`). La extensión: detecta pista,
+  busca letra (LRCLIB con 3 búsquedas paralelas + matching por título canónico; NetEase opt-in;
+  texto plano interpolado), furigana (offscreen kuromoji), karaoke "wipe", on/off por icono,
+  panel debug 🐞, **controles de tamaño (A−/A+), desfase por canción (⏪/⏩) y búsqueda manual
+  con selección (✏️)**. 79 tests verdes.
+- **▶️ PRÓXIMA:** **Fase 8 — pulido** (icono propio, README, accesibilidad/rendimiento, e2e).
+  *(Fase 7 = alineación forzada offline, opcional, no iniciada.)*
+- **Pendiente/ideas:** Options/popup con prioridad de fuentes; atajos de teclado para offset;
+  más fuentes opt-in. Ver bitácora para detalle por fase.
+
+## 📍 (histórico) checkpoint Fase 5
 - **Rama de trabajo:** `feat/fase-5-karaoke` (NO mergeada). `main` está en **tag `fase-4`**.
 - **Fase:** 5 — Karaoke "wipe" → **CÓDIGO COMPLETO** (typecheck, **74 tests** y build verdes).
   **PENDIENTE: prueba manual del usuario** en Chrome; luego `merge --no-ff` a `main` + `git tag fase-5`.

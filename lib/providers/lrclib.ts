@@ -3,6 +3,7 @@
 // - lrclibPlainProvider: TEXTO PLANO interpolado (último recurso) cuando no hay sincronizada.
 // Casan por título + artista + duración (±2 s). Ver .claude/rules/lyrics-providers.md.
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
+import type { ManualCandidate } from '../messaging';
 import { lrcToDoc, parseLrc } from './lrc';
 import { interpolatePlainLines } from '../normalizer/interpolate';
 import { isRelevant, relevanceScore } from '../normalizer/match';
@@ -34,14 +35,23 @@ export interface LrclibCandidate {
  *    latino —YOASOBI…— recupera el catálogo y luego desempatamos por duración).
  */
 function buildSearchUrls(q: TrackQuery): string[] {
+  const text = q.rawTitle ?? q.title;
+  const urls: string[] = [];
+
+  // A) por campos (preciso para casos limpios "Artista - Título").
   const field = new URLSearchParams();
   field.set('track_name', q.title);
   if (q.artist) field.set('artist_name', q.artist);
+  urls.push(`${BASE}/api/search?${field.toString()}`);
 
-  const general = new URLSearchParams();
-  general.set('q', [q.artist, q.title].filter(Boolean).join(' '));
+  // B) q= con el TÍTULO COMPLETO limpio (cubre títulos con tokens latinos, ej. "Black Catcher").
+  urls.push(`${BASE}/api/search?${new URLSearchParams({ q: text }).toString()}`);
 
-  return [`${BASE}/api/search?${field.toString()}`, `${BASE}/api/search?${general.toString()}`];
+  // C) q= con CANAL + título (cubre títulos en kanji cuando el artista es latino, ej. YOASOBI:
+  //    LRCLIB indexa por tokens latinos, así el nombre del canal recupera el catálogo).
+  if (q.channel) urls.push(`${BASE}/api/search?${new URLSearchParams({ q: `${q.channel} ${text}` }).toString()}`);
+
+  return [...new Set(urls)];
 }
 
 function toCandidates(data: unknown): LrclibCandidate[] {
@@ -61,24 +71,23 @@ const memo = new Map<string, { ts: number; data: LrclibCandidate[] }>();
  * (artista/título) + duración desempatan después.
  */
 async function searchLrclib(query: TrackQuery): Promise<LrclibCandidate[]> {
-  const [fieldUrl, queryUrl] = buildSearchUrls(query);
-  const key = fieldUrl;
+  const urls = buildSearchUrls(query);
+  const key = urls.join('|');
   const cached = memo.get(key);
   if (cached && Date.now() - cached.ts < MEMO_TTL_MS) return cached.data;
 
   const headers = { Accept: 'application/json' };
-  const [fieldData, queryData] = await Promise.all([
-    fetchJson(fieldUrl!, { headers }, TIMEOUT_MS),
-    fetchJson(queryUrl!, { headers }, TIMEOUT_MS),
-  ]);
+  const lists = await Promise.all(urls.map((u) => fetchJson(u, { headers }, TIMEOUT_MS)));
 
   const merged: LrclibCandidate[] = [];
   const seen = new Set<string>();
-  for (const c of [...toCandidates(fieldData), ...toCandidates(queryData)]) {
-    const k = candKey(c);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    merged.push(c);
+  for (const list of lists) {
+    for (const c of toCandidates(list)) {
+      const k = candKey(c);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      merged.push(c);
+    }
   }
   if (merged.length > 0) memo.set(key, { ts: Date.now(), data: merged });
   return merged;
@@ -90,13 +99,16 @@ function pickBy(
   hasLyrics: (c: LrclibCandidate) => boolean,
 ): LrclibCandidate | null {
   if (!Array.isArray(candidates)) return null;
-  // Filtra por: tiene letra, no instrumental y RELEVANTE (artista/título coinciden).
+  const videoText = query.rawTitle ?? query.title;
+  const channel = query.channel ?? query.artist;
+  // Filtra por: tiene letra, no instrumental y RELEVANTE (el título/artista canónicos
+  // del candidato aparecen en el título del video o el canal).
   const matches = candidates.filter(
     (c): c is LrclibCandidate =>
       !!c &&
       !(c as LrclibCandidate).instrumental &&
       hasLyrics(c as LrclibCandidate) &&
-      isRelevant((c as LrclibCandidate).trackName, (c as LrclibCandidate).artistName, query.title, query.artist),
+      isRelevant((c as LrclibCandidate).trackName, (c as LrclibCandidate).artistName, videoText, channel),
   );
   if (matches.length === 0) return null;
 
@@ -110,8 +122,8 @@ function pickBy(
 
   // Prefiere más señales coincidentes (artista+título); luego, duración más cercana.
   pool.sort((a, b) => {
-    const sa = relevanceScore(a.trackName, a.artistName, query.title, query.artist);
-    const sb = relevanceScore(b.trackName, b.artistName, query.title, query.artist);
+    const sa = relevanceScore(a.trackName, a.artistName, videoText, channel);
+    const sb = relevanceScore(b.trackName, b.artistName, videoText, channel);
     if (sa !== sb) return sb - sa;
     if (dur == null) return 0;
     return Math.abs((a.duration ?? Infinity) - dur) - Math.abs((b.duration ?? Infinity) - dur);
@@ -147,6 +159,39 @@ export const lrclibProvider: LyricsProvider = {
     return candidateToDoc(cand, query.durationSec);
   },
 };
+
+// --- Búsqueda manual + traer por id (fallback con selección) ---------------
+export async function lrclibManualSearch(text: string): Promise<ManualCandidate[]> {
+  const url = `${BASE}/api/search?${new URLSearchParams({ q: text }).toString()}`;
+  const cands = toCandidates(await fetchJson(url, { headers: { Accept: 'application/json' } }, TIMEOUT_MS));
+  return cands
+    .filter((c) => c.id != null && !c.instrumental && (c.syncedLyrics || c.plainLyrics))
+    .map((c) => ({
+      source: 'lrclib',
+      id: c.id!,
+      artist: c.artistName ?? '',
+      title: c.trackName ?? '',
+      durationSec: c.duration,
+      hasSynced: !!c.syncedLyrics,
+    }));
+}
+
+export async function lrclibGetById(id: string | number, durationSec?: number): Promise<LyricsDoc | null> {
+  const data = (await fetchJson(
+    `${BASE}/api/get/${id}`,
+    { headers: { Accept: 'application/json' } },
+    TIMEOUT_MS,
+  )) as LrclibCandidate | null;
+  if (!data) return null;
+  const doc = candidateToDoc(data, durationSec);
+  if (doc) return doc;
+  if (typeof data.plainLyrics === 'string' && (durationSec ?? data.duration)) {
+    const dur = durationSec ?? data.duration!;
+    const plain = interpolatePlainLines(data.plainLyrics.split(/\r?\n/), dur, 'lrclib-plain');
+    return plain.lines.length > 0 ? plain : null;
+  }
+  return null;
+}
 
 export const lrclibPlainProvider: LyricsProvider = {
   id: 'lrclib-plain',

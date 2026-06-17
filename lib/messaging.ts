@@ -15,8 +15,36 @@ export interface TokenizeMessage {
   text: string;
 }
 
+/** Búsqueda manual de letra (texto libre): devuelve candidatos para elegir. */
+export interface SearchManualMessage {
+  type: 'SEARCH_MANUAL';
+  query: string;
+}
+
+/** Trae la letra de un candidato concreto ya elegido por el usuario. */
+export interface GetByIdMessage {
+  type: 'GET_BY_ID';
+  source: string;
+  id: string | number;
+  durationSec?: number;
+}
+
 /** Mensajes que el content script envía al background. */
-export type ExtMessage = GetLyricsMessage | TokenizeMessage;
+export type ExtMessage = GetLyricsMessage | TokenizeMessage | SearchManualMessage | GetByIdMessage;
+
+/** Candidato mostrado en el popup de selección manual. */
+export interface ManualCandidate {
+  source: string;
+  id: string | number;
+  artist: string;
+  title: string;
+  durationSec?: number;
+  hasSynced: boolean;
+}
+
+export interface SearchManualResponse {
+  candidates: ManualCandidate[];
+}
 
 export interface GetLyricsResponse {
   doc: LyricsDoc | null;
