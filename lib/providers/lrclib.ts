@@ -5,11 +5,13 @@
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
 import { lrcToDoc, parseLrc } from './lrc';
 import { interpolatePlainLines } from '../normalizer/interpolate';
-import { isRelevant } from '../normalizer/match';
+import { isRelevant, namesOverlap } from '../normalizer/match';
 import { fetchJson } from './http';
 
 const BASE = 'https://lrclib.net';
-const DURATION_TOLERANCE_S = 2;
+// Duración APROXIMADA (no exacta): los MV suelen diferir unos segundos del audio.
+// El filtro de relevancia (artista/título) ya evita canciones equivocadas.
+const DURATION_TOLERANCE_S = 10;
 const MEMO_TTL_MS = 60_000;
 const TIMEOUT_MS = 5000;
 
@@ -68,10 +70,6 @@ async function searchLrclib(query: TrackQuery): Promise<LrclibCandidate[]> {
   return list;
 }
 
-function withinDuration(c: LrclibCandidate, durationSec: number): boolean {
-  return typeof c.duration === 'number' && Math.abs(c.duration - durationSec) <= DURATION_TOLERANCE_S;
-}
-
 function pickBy(
   candidates: unknown,
   query: TrackQuery,
@@ -87,12 +85,24 @@ function pickBy(
       isRelevant((c as LrclibCandidate).trackName, (c as LrclibCandidate).artistName, query.title, query.artist),
   );
   if (matches.length === 0) return null;
-  const durationSec = query.durationSec;
-  if (durationSec == null) return matches[0]!;
-  const within = matches.filter((c) => withinDuration(c, durationSec));
-  if (within.length === 0) return null;
-  within.sort((a, b) => Math.abs(a.duration! - durationSec) - Math.abs(b.duration! - durationSec));
-  return within[0]!;
+
+  const dur = query.durationSec;
+  // Si hay duración, exige estar dentro de la ventana APROXIMADA (±10 s).
+  const pool =
+    dur == null
+      ? matches
+      : matches.filter((c) => typeof c.duration === 'number' && Math.abs(c.duration - dur) <= DURATION_TOLERANCE_S);
+  if (pool.length === 0) return null;
+
+  // Prefiere coincidencia de TÍTULO; luego, duración más cercana.
+  pool.sort((a, b) => {
+    const ta = namesOverlap(a.trackName, query.title) ? 0 : 1;
+    const tb = namesOverlap(b.trackName, query.title) ? 0 : 1;
+    if (ta !== tb) return ta - tb;
+    if (dur == null) return 0;
+    return Math.abs((a.duration ?? Infinity) - dur) - Math.abs((b.duration ?? Infinity) - dur);
+  });
+  return pool[0]!;
 }
 
 /** Elige el mejor candidato con letra SINCRONIZADA (relevante + ±2 s). */

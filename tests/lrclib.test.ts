@@ -39,6 +39,18 @@ describe('pickCandidate', () => {
     expect(pickCandidate(list, q({ durationSec: 100 }))).toBeNull();
   });
 
+  it('acepta duración APROXIMADA (±10 s), no exacta (caso Black Catcher)', () => {
+    expect(pickCandidate([cand({ id: 8, duration: 191 })], q({ durationSec: 199 }))?.id).toBe(8);
+  });
+
+  it('dentro de la ventana, prefiere el candidato con título coincidente', () => {
+    const list = [
+      cand({ id: 1, trackName: 'Otra Cancion', duration: 200 }), // duración más cercana, título distinto
+      cand({ id: 2, trackName: 'Black Catcher', duration: 205 }), // título coincide
+    ];
+    expect(pickCandidate(list, q({ title: 'Black Catcher', durationSec: 200 }))?.id).toBe(2);
+  });
+
   it('rechaza candidatos de OTRO artista aunque la duración encaje', () => {
     const list = [cand({ artistName: 'Otro Artista', duration: 100 })];
     expect(pickCandidate(list, q({ artist: 'YOASOBI', durationSec: 100 }))).toBeNull();

@@ -3,11 +3,12 @@
 // Off por defecto; el usuario la activa. Ver .claude/rules/lyrics-providers.md y security.md.
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
 import { lrcToDoc, parseLrc } from './lrc';
-import { isRelevant } from '../normalizer/match';
+import { isRelevant, namesOverlap } from '../normalizer/match';
 import { fetchJson } from './http';
 
 const BASE = 'https://music.163.com';
-const DURATION_TOLERANCE_S = 2;
+// Duración APROXIMADA (no exacta); el filtro de relevancia evita canciones equivocadas.
+const DURATION_TOLERANCE_S = 10;
 const TIMEOUT_MS = 6000; // NetEase (China) puede ser lento desde fuera
 
 interface NeteaseSong {
@@ -39,14 +40,22 @@ export function pickSong(songs: unknown, query: TrackQuery): NeteaseSong | null 
       isRelevant((s as NeteaseSong).name, songArtist(s as NeteaseSong), query.title, query.artist),
   );
   if (valid.length === 0) return null;
-  const durationSec = query.durationSec;
-  if (durationSec == null) return valid[0]!;
-  const within = valid.filter(
-    (s) => typeof s.duration === 'number' && Math.abs(s.duration / 1000 - durationSec) <= DURATION_TOLERANCE_S,
-  );
-  if (within.length === 0) return null;
-  within.sort((a, b) => Math.abs(a.duration! / 1000 - durationSec) - Math.abs(b.duration! / 1000 - durationSec));
-  return within[0]!;
+  const dur = query.durationSec;
+  const pool =
+    dur == null
+      ? valid
+      : valid.filter((s) => typeof s.duration === 'number' && Math.abs(s.duration / 1000 - dur) <= DURATION_TOLERANCE_S);
+  if (pool.length === 0) return null;
+
+  // Prefiere coincidencia de TÍTULO; luego, duración más cercana.
+  pool.sort((a, b) => {
+    const ta = namesOverlap(a.name, query.title) ? 0 : 1;
+    const tb = namesOverlap(b.name, query.title) ? 0 : 1;
+    if (ta !== tb) return ta - tb;
+    if (dur == null) return 0;
+    return Math.abs((a.duration ?? Infinity) / 1000 - dur) - Math.abs((b.duration ?? Infinity) / 1000 - dur);
+  });
+  return pool[0]!;
 }
 
 // Líneas de créditos que NetEase mete con timestamp al inicio (no son letra).
