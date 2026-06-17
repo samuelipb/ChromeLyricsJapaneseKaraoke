@@ -7,9 +7,14 @@
 ---
 
 ## 📍 Estado actual
-- **Fase:** 2 — Detección de pista + LRCLIB + letra sincronizada por línea → **CÓDIGO COMPLETO**
-  en rama `feat/fase-2-lrclib` (typecheck, 34 tests y build verdes). **Pendiente tu prueba manual**
-  en un video real; luego merge a `main` + tag `fase-2`.
+- **Fase:** 2 — Detección de pista + LRCLIB + letra sincronizada por línea →
+  **COMPLETADA Y VERIFICADA** por el usuario (funciona en videos mainstream tipo YOASOBI/Yonezu).
+  Mergeada a `main` + **tag `fase-2`**. Decisión: se cierra **solo con LRCLIB**; el proveedor de
+  subtítulos de YouTube (timedtext, prioridad #1 del plan) se difiere a la **Fase 4**.
+- **Aprendizaje de cobertura:** el video de あいみょん `IL35V9wYr-U` no mostró letra porque
+  (a) LRCLIB no tiene NADA de あいみょん/Aimyon, y (b) ese lyric video no tiene captions de YouTube.
+  No fue bug: la detección parseó bien (`あいみょん` / `貴方解剖純愛歌 〜死ね〜`) y la extensión degradó
+  con elegancia ("sin letra"). Más fuentes = Fase 4.
 - **Hecho en Fase 2:** modelo interno (`lib/model.ts`), parser LRC (`lib/providers/lrc.ts`),
   proveedor LRCLIB con matching por duración ±2 s (`lib/providers/lrclib.ts`), limpieza de
   título/artista con heurística japonesa `『』` (`lib/normalizer/title.ts`), mensajería tipada
@@ -30,10 +35,11 @@
   `https://lrclib.net/*` y el permiso `storage` para la caché por `videoId`.
   *(Aprobado y ya implementado — ver Estado actual.)*
 
-- **▶️ TRAS verificar la Fase 2:** **Fase 3 — Furigana con kuromoji/kuroshiro** (`<ruby>` por nodos,
+- **▶️ PRÓXIMA TAREA:** **Fase 3 — Furigana con kuromoji/kuroshiro** (`<ruby>` por nodos,
   toggle furigana/romaji, tokenizador en worker/offscreen con diccionario vendorizado).
-  Mejora pendiente opcional de detección: usar el panel "Música" de YouTube (Song/Artist
-  estructurado) cuando exista, más fiable que limpiar el título.
+- **Diferido a Fase 4 (cadena multi-fuente):** proveedor de subtítulos de YouTube (timedtext,
+  prioridad #1), texto plano interpolado como respaldo, y mejora de detección con el panel
+  "Música" de YouTube (Song/Artist estructurado), más fiable que limpiar el título.
 
 ## 🧭 Cómo probar la Fase 1 (manual, lo hace el usuario)
 1. `npm run build` (ya corrido) → genera `.output/chrome-mv3`.
