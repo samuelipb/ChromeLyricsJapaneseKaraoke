@@ -15,8 +15,11 @@ async function buildTokenizer(): Promise<JpTokenizer> {
   // Fork @sglkc/kuromoji: usa fetch + fflate (sin zlibjs ni node 'path'), apto para
   // navegador/ESM. Carga perezosa para reportar errores en vez de quedar mudo.
   const { builder } = await import('@sglkc/kuromoji');
-  const getURL = browser.runtime.getURL as (path: string) => string;
-  const dicPath = getURL('dict/');
+  // OJO: el loader de la fork colapsa TODAS las barras (.replace(/\/{1,}/g,'/')), lo que
+  // rompería un "chrome-extension://…". Usamos una ruta ABSOLUTA AL ORIGEN ('/dict'): el
+  // offscreen se sirve desde chrome-extension://<id>/offscreen.html, así que
+  // fetch('/dict/base.dat.gz') resuelve a chrome-extension://<id>/dict/base.dat.gz.
+  const dicPath = '/dict';
   console.log('[letras-jp] offscreen: cargando diccionario kuromoji desde', dicPath);
   return new Promise<JpTokenizer>((resolve, reject) => {
     builder({ dicPath }).build((err, tokenizer) => {
