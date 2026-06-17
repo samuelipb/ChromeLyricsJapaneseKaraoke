@@ -6,6 +6,8 @@ import type { KToken } from './tokenizer/furigana';
 export interface GetLyricsMessage {
   type: 'GET_LYRICS';
   query: TrackQuery;
+  /** Ignora y borra la caché de este videoId (re-buscar). */
+  force?: boolean;
 }
 
 export interface TokenizeMessage {

@@ -38,6 +38,7 @@ export default defineContentScript({
     let nextEl: HTMLElement | null = null;
     let furiBtn: HTMLButtonElement | null = null;
     let romaBtn: HTMLButtonElement | null = null;
+    let reloadBtn: HTMLButtonElement | null = null;
     let video: HTMLVideoElement | null = null;
     const videoListeners: Array<[keyof HTMLMediaElementEventMap, EventListener]> = [];
 
@@ -100,9 +101,12 @@ export default defineContentScript({
       Object.assign(statusEl.style, { fontSize: '11px', opacity: '0.7' });
       furiBtn = makeBtn('ふりがな', settings.furigana);
       romaBtn = makeBtn('ローマ字', settings.romaji);
+      reloadBtn = makeBtn('🔄', false);
+      reloadBtn.title = 'Re-buscar letra (ignora la caché de este video)';
       furiBtn.addEventListener('click', () => toggle('furigana'));
       romaBtn.addEventListener('click', () => toggle('romaji'));
-      bar.append(statusEl, furiBtn, romaBtn);
+      reloadBtn.addEventListener('click', () => kickoff(true));
+      bar.append(statusEl, furiBtn, romaBtn, reloadBtn);
 
       prevEl = document.createElement('div');
       curEl = document.createElement('div');
@@ -266,10 +270,10 @@ export default defineContentScript({
       return { title, artist, durationSec, videoId };
     }
 
-    async function requestLyrics(query: TrackQuery): Promise<void> {
+    async function requestLyrics(query: TrackQuery, force = false): Promise<void> {
       const myGen = gen;
       setStatus(`🔎 ${query.artist ? query.artist + ' — ' : ''}${query.title}`);
-      const msg: GetLyricsMessage = { type: 'GET_LYRICS', query };
+      const msg: GetLyricsMessage = { type: 'GET_LYRICS', query, force };
       let res: GetLyricsResponse;
       try {
         res = (await browser.runtime.sendMessage(msg)) as GetLyricsResponse;
@@ -319,13 +323,13 @@ export default defineContentScript({
     }
 
     // --- Ciclo de vida -------------------------------------------------------
-    function kickoff(): void {
+    function kickoff(force = false): void {
       const query = detectTrack();
       if (!query) {
         setStatus('… esperando metadatos del video');
         return;
       }
-      void requestLyrics(query);
+      void requestLyrics(query, force);
     }
 
     function init(): void {
@@ -346,7 +350,7 @@ export default defineContentScript({
       lastIndex = -2;
       document.getElementById(OVERLAY_ID)?.remove();
       overlay = statusEl = prevEl = curEl = romajiEl = nextEl = null;
-      furiBtn = romaBtn = null;
+      furiBtn = romaBtn = reloadBtn = null;
     }
 
     const onNavigate = () => {
