@@ -101,6 +101,12 @@
   WXT de major y rompería; se deja como está. Revisar al actualizar WXT.
 - Las fuentes de letras "de riesgo" (word-timing/scraping) van **opt-in**; decidir cuáles activar
   más adelante (Fase 4/5).
+- **TODO "side approach" (a revisar con el usuario):** casos como el lyric video de あいみょん
+  `IL35V9wYr-U` donde NO hay letra en LRCLIB NI captions en YouTube (letra incrustada en la
+  imagen). Opciones a evaluar: (1) más bases de letras / proveedores opt-in; (2) texto plano de
+  otra fuente + interpolación por mora (degradación sin sincronía exacta); (3) OCR de los
+  fotogramas del lyric video; (4) alineación forzada offline (Fase 7, WhisperX/aeneas) →
+  Enhanced LRC cacheado. Discutir alcance/legalidad/coste antes de implementar.
 
 ## 📒 Bitácora (log breve por tarea)
 - **[Fase 2]** Detección de pista + LRCLIB + letra por línea. `lib/`: model, lrc parser,
