@@ -5,7 +5,7 @@
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
 import { lrcToDoc, parseLrc } from './lrc';
 import { interpolatePlainLines } from '../normalizer/interpolate';
-import { isRelevant, namesOverlap } from '../normalizer/match';
+import { isRelevant, relevanceScore } from '../normalizer/match';
 import { fetchJson } from './http';
 
 const BASE = 'https://lrclib.net';
@@ -94,11 +94,11 @@ function pickBy(
       : matches.filter((c) => typeof c.duration === 'number' && Math.abs(c.duration - dur) <= DURATION_TOLERANCE_S);
   if (pool.length === 0) return null;
 
-  // Prefiere coincidencia de TÍTULO; luego, duración más cercana.
+  // Prefiere más señales coincidentes (artista+título); luego, duración más cercana.
   pool.sort((a, b) => {
-    const ta = namesOverlap(a.trackName, query.title) ? 0 : 1;
-    const tb = namesOverlap(b.trackName, query.title) ? 0 : 1;
-    if (ta !== tb) return ta - tb;
+    const sa = relevanceScore(a.trackName, a.artistName, query.title, query.artist);
+    const sb = relevanceScore(b.trackName, b.artistName, query.title, query.artist);
+    if (sa !== sb) return sb - sa;
     if (dur == null) return 0;
     return Math.abs((a.duration ?? Infinity) - dur) - Math.abs((b.duration ?? Infinity) - dur);
   });

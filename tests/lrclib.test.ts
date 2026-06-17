@@ -51,9 +51,16 @@ describe('pickCandidate', () => {
     expect(pickCandidate(list, q({ title: 'Black Catcher', durationSec: 200 }))?.id).toBe(2);
   });
 
-  it('rechaza candidatos de OTRO artista aunque la duración encaje', () => {
-    const list = [cand({ artistName: 'Otro Artista', duration: 100 })];
-    expect(pickCandidate(list, q({ artist: 'YOASOBI', durationSec: 100 }))).toBeNull();
+  it('rechaza canción equivocada (otro artista Y otro título) aunque la duración encaje', () => {
+    const list = [cand({ artistName: 'Otro Artista', trackName: 'Otra Cancion', duration: 100 })];
+    expect(pickCandidate(list, q({ title: 'Black Catcher', artist: 'YOASOBI', durationSec: 100 }))).toBeNull();
+  });
+
+  it('acepta si coincide el TÍTULO aunque el artista esté en otro script (caso Black Catcher)', () => {
+    // YouTube: artista "ビッケブランカ"; LRCLIB lo guarda como "Vickeblanka" (romaji) → no casa el
+    // artista, pero el título "Black Catcher" sí.
+    const list = [cand({ id: 5, artistName: 'Vickeblanka', trackName: 'Black Catcher', duration: 197 })];
+    expect(pickCandidate(list, q({ title: 'Black Catcher', artist: 'ビッケブランカ', durationSec: 199 }))?.id).toBe(5);
   });
 
   it('sin duración, toma el primero relevante con letra sincronizada', () => {

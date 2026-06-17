@@ -36,11 +36,17 @@ const BRACKET_PAIRS: Array<[string, string]> = [
   ['(', ')'],
   ['[', ']'],
   ['{', '}'],
-  ['【', '】'],
   ['「', '」'],
   ['『', '』'],
   ['〈', '〉'],
   ['《', '》'],
+];
+
+// Corchetes que en YouTube japonés son SIEMPRE anotaciones (programa, sello, "MV",
+// 歌唱曲, 第75回NHK紅白…), no el título → se quitan sin condición. (El título va en 「」『』.)
+const ALWAYS_STRIP_PAIRS: Array<[string, string]> = [
+  ['【', '】'],
+  ['［', '］'],
 ];
 
 // feat./ft./featuring … hasta el final del fragmento.
@@ -52,6 +58,16 @@ const EMOJI =
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Quita SIEMPRE el contenido de 【…】 / ［…］ (anotaciones, no título). */
+function stripAnnotations(input: string): string {
+  let out = input;
+  for (const [open, close] of ALWAYS_STRIP_PAIRS) {
+    const re = new RegExp(`${escapeRe(open)}[^${escapeRe(close)}]*${escapeRe(close)}`, 'g');
+    out = out.replace(re, ' ');
+  }
+  return out;
 }
 
 /** Quita los segmentos entre delimitadores cuyo interior sea "ruido editorial". */
@@ -72,13 +88,15 @@ function collapse(s: string): string {
   return s.replace(/\s{2,}/g, ' ').replace(/^[\s\-–—|·•:]+|[\s\-–—|·•:]+$/g, '').trim();
 }
 
-// Sufijos sueltos (sin corchetes) de alta confianza al final del título.
+// Sufijos sueltos (sin corchetes) de alta confianza al final del título. Acepta un
+// separador previo opcional incluyendo ：/: (p. ej. "踊り子 / Vaundy：MUSIC VIDEO").
 const BARE_SUFFIX =
-  /\s*[-–—|/]?\s*(official\s+music\s+video|official\s+lyric\s+video|official\s+video|official\s+audio|music\s+video|lyric\s+video)\s*$/i;
+  /\s*[-–—|/:：]?\s*(official\s+music\s+video|official\s+lyric\s+video|official\s+video|official\s+audio|music\s+video|lyric\s+video)\s*$/i;
 
 /** Quita ruido editorial de un texto (sin separar artista/título). */
 export function cleanTitle(raw: string): string {
   let s = raw.normalize('NFC');
+  s = stripAnnotations(s); // 【…】／［…］ siempre
   s = stripBracketed(s);
   s = s.replace(FEAT, ' ');
   s = s.replace(EMOJI, ' ');

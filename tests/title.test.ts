@@ -8,6 +8,8 @@ describe('cleanTitle', () => {
     ['米津玄師 - Lemon [MV]', '米津玄師 - Lemon'],
     ['Ado / 新時代 (ウタ from ONE PIECE FILM RED)', 'Ado / 新時代 (ウタ from ONE PIECE FILM RED)'],
     ['King Gnu - 白日【Official Video】', 'King Gnu - 白日'],
+    // 【…】 anotaciones (programa/歌唱曲) siempre fuera + sufijo ：MUSIC VIDEO
+    ['【第75回NHK紅白歌合戦 歌唱曲】踊り子 / Vaundy：MUSIC VIDEO', '踊り子 / Vaundy'],
     ['Song feat. Someone', 'Song'],
     ['Song ft. Other Artist', 'Song'],
     ['歌手 - 曲名 (歌詞付き)', '歌手 - 曲名'],

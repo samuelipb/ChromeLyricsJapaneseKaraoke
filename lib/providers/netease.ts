@@ -3,7 +3,7 @@
 // Off por defecto; el usuario la activa. Ver .claude/rules/lyrics-providers.md y security.md.
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
 import { lrcToDoc, parseLrc } from './lrc';
-import { isRelevant, namesOverlap } from '../normalizer/match';
+import { isRelevant, relevanceScore } from '../normalizer/match';
 import { fetchJson } from './http';
 
 const BASE = 'https://music.163.com';
@@ -47,11 +47,11 @@ export function pickSong(songs: unknown, query: TrackQuery): NeteaseSong | null 
       : valid.filter((s) => typeof s.duration === 'number' && Math.abs(s.duration / 1000 - dur) <= DURATION_TOLERANCE_S);
   if (pool.length === 0) return null;
 
-  // Prefiere coincidencia de TÍTULO; luego, duración más cercana.
+  // Prefiere más señales coincidentes (artista+título); luego, duración más cercana.
   pool.sort((a, b) => {
-    const ta = namesOverlap(a.name, query.title) ? 0 : 1;
-    const tb = namesOverlap(b.name, query.title) ? 0 : 1;
-    if (ta !== tb) return ta - tb;
+    const sa = relevanceScore(a.name, songArtist(a), query.title, query.artist);
+    const sb = relevanceScore(b.name, songArtist(b), query.title, query.artist);
+    if (sa !== sb) return sb - sa;
     if (dur == null) return 0;
     return Math.abs((a.duration ?? Infinity) / 1000 - dur) - Math.abs((b.duration ?? Infinity) / 1000 - dur);
   });

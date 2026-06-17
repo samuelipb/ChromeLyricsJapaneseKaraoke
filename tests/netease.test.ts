@@ -18,8 +18,8 @@ describe('pickSong', () => {
   it('rechaza si ninguna duración encaja', () => {
     expect(pickSong([song({ id: 1, duration: 300_000 })], Q)).toBeNull();
   });
-  it('rechaza canción de OTRO artista aunque la duración encaje (evita letra china errónea)', () => {
-    const songs = [song({ id: 9, duration: 239_000, artists: [{ name: '某中文歌手' }] })];
+  it('rechaza canción equivocada (otro título Y otro artista) aunque la duración encaje', () => {
+    const songs = [song({ id: 9, name: '某中文歌', duration: 239_000, artists: [{ name: '某中文歌手' }] })];
     expect(pickSong(songs, Q)).toBeNull();
   });
   it('sin duración, la primera relevante', () => {

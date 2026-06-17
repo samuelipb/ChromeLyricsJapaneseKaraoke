@@ -20,17 +20,29 @@ export function namesOverlap(a: string | undefined, b: string | undefined): bool
 }
 
 /**
- * ¿El candidato corresponde a la consulta?
- * - Si conocemos el artista → exigimos que el artista coincida (filtro fuerte y fiable
- *   aunque el título esté en romaji/kanji distinto).
- * - Si no hay artista → exigimos que el título coincida.
+ * Cuántas señales coinciden (0, 1 o 2): artista y/o título.
+ * Sirve para rankear candidatos (2 = muy fiable; 1 = aceptable).
+ * Nota: artista y título pueden estar en scripts distintos entre YouTube y la fuente
+ * (katakana vs romaji, kanji vs romaji), por eso basta con que coincida UNO.
  */
+export function relevanceScore(
+  candTitle: string | undefined,
+  candArtist: string | undefined,
+  queryTitle: string,
+  queryArtist?: string,
+): number {
+  let n = 0;
+  if (queryArtist && queryArtist.trim() && namesOverlap(candArtist, queryArtist)) n++;
+  if (namesOverlap(candTitle, queryTitle)) n++;
+  return n;
+}
+
+/** Relevante si coincide el artista O el título (al menos una señal). */
 export function isRelevant(
   candTitle: string | undefined,
   candArtist: string | undefined,
   queryTitle: string,
   queryArtist?: string,
 ): boolean {
-  if (queryArtist && queryArtist.trim()) return namesOverlap(candArtist, queryArtist);
-  return namesOverlap(candTitle, queryTitle);
+  return relevanceScore(candTitle, candArtist, queryTitle, queryArtist) > 0;
 }

@@ -20,13 +20,14 @@ describe('namesOverlap', () => {
   });
 });
 
-describe('isRelevant', () => {
-  it('con artista conocido, filtra por artista', () => {
-    expect(isRelevant('cualquier título', 'YOASOBI', 'tema', 'YOASOBI')).toBe(true);
-    expect(isRelevant('cualquier título', 'Otro', 'tema', 'YOASOBI')).toBe(false);
+describe('isRelevant (artista O título)', () => {
+  it('relevante si coincide el artista (aunque el título no)', () => {
+    expect(isRelevant('Ano yume wo nazotte', 'YOASOBI', 'あの夢をなぞって', 'YOASOBI')).toBe(true);
   });
-  it('sin artista, filtra por título', () => {
-    expect(isRelevant('群青', undefined, '群青')).toBe(true);
-    expect(isRelevant('OtraCanción', undefined, '群青')).toBe(false);
+  it('relevante si coincide el título (aunque el artista esté en otro script)', () => {
+    expect(isRelevant('Black Catcher', 'Vickeblanka', 'Black Catcher', 'ビッケブランカ')).toBe(true);
+  });
+  it('NO relevante si no coincide ni artista ni título (canción equivocada)', () => {
+    expect(isRelevant('某中文歌', '某歌手', 'Black Catcher', 'ビッケブランカ')).toBe(false);
   });
 });
