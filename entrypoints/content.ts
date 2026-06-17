@@ -451,6 +451,7 @@ export default defineContentScript({
 
     // --- Ciclo de vida -------------------------------------------------------
     function kickoff(force = false): void {
+      dbg('título crudo: ' + document.title);
       const query = detectTrack();
       if (!query) {
         setStatus('… esperando metadatos del video');
