@@ -3,11 +3,13 @@
 // Off por defecto; el usuario la activa. Ver .claude/rules/lyrics-providers.md y security.md.
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
 import { lrcToDoc, parseLrc } from './lrc';
+import { isRelevant, relevanceScore } from '../normalizer/match';
 import { fetchJson } from './http';
 
 const BASE = 'https://music.163.com';
-const DURATION_TOLERANCE_S = 2;
-const TIMEOUT_MS = 6000; // NetEase (China) puede ser lento desde fuera
+// Duración APROXIMADA (no exacta); el filtro de relevancia evita canciones equivocadas.
+const DURATION_TOLERANCE_S = 10;
+const TIMEOUT_MS = 12_000; // NetEase (China) puede ser lento desde fuera
 
 interface NeteaseSong {
   id: number;
@@ -20,20 +22,40 @@ function buildQuery(q: TrackQuery): string {
   return [q.artist, q.title].filter(Boolean).join(' ');
 }
 
-/** Elige la canción cuya duración (ms→s) casa ±2 s; sin duración, la primera (mejor rankeada). */
-export function pickSong(songs: unknown, durationSec?: number): NeteaseSong | null {
+function songArtist(s: NeteaseSong): string {
+  return (s.artists ?? []).map((a) => a.name ?? '').join(' ');
+}
+
+/**
+ * Elige la canción RELEVANTE (artista/título coinciden con la consulta) cuya duración
+ * (ms→s) casa ±2 s. El filtro de relevancia evita matches falsos (p. ej. una canción
+ * china a la misma duración). Sin duración, la primera relevante.
+ */
+export function pickSong(songs: unknown, query: TrackQuery): NeteaseSong | null {
   if (!Array.isArray(songs)) return null;
   const valid = songs.filter(
-    (s): s is NeteaseSong => !!s && typeof (s as NeteaseSong).id === 'number',
+    (s): s is NeteaseSong =>
+      !!s &&
+      typeof (s as NeteaseSong).id === 'number' &&
+      isRelevant((s as NeteaseSong).name, songArtist(s as NeteaseSong), query.title, query.artist),
   );
   if (valid.length === 0) return null;
-  if (durationSec == null) return valid[0]!;
-  const within = valid.filter(
-    (s) => typeof s.duration === 'number' && Math.abs(s.duration / 1000 - durationSec) <= DURATION_TOLERANCE_S,
-  );
-  if (within.length === 0) return null;
-  within.sort((a, b) => Math.abs(a.duration! / 1000 - durationSec) - Math.abs(b.duration! / 1000 - durationSec));
-  return within[0]!;
+  const dur = query.durationSec;
+  const pool =
+    dur == null
+      ? valid
+      : valid.filter((s) => typeof s.duration === 'number' && Math.abs(s.duration / 1000 - dur) <= DURATION_TOLERANCE_S);
+  if (pool.length === 0) return null;
+
+  // Prefiere más señales coincidentes (artista+título); luego, duración más cercana.
+  pool.sort((a, b) => {
+    const sa = relevanceScore(a.name, songArtist(a), query.title, query.artist);
+    const sb = relevanceScore(b.name, songArtist(b), query.title, query.artist);
+    if (sa !== sb) return sb - sa;
+    if (dur == null) return 0;
+    return Math.abs((a.duration ?? Infinity) / 1000 - dur) - Math.abs((b.duration ?? Infinity) / 1000 - dur);
+  });
+  return pool[0]!;
 }
 
 // Líneas de créditos que NetEase mete con timestamp al inicio (no son letra).
@@ -57,7 +79,7 @@ export const neteaseProvider: LyricsProvider = {
       TIMEOUT_MS,
     )) as { result?: { songs?: unknown } } | null;
 
-    const song = pickSong(search?.result?.songs, query.durationSec);
+    const song = pickSong(search?.result?.songs, query);
     if (!song) return null;
 
     const lyr = (await fetchJson(

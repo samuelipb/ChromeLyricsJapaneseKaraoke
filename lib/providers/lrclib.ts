@@ -5,12 +5,16 @@
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
 import { lrcToDoc, parseLrc } from './lrc';
 import { interpolatePlainLines } from '../normalizer/interpolate';
+import { isRelevant, relevanceScore } from '../normalizer/match';
 import { fetchJson } from './http';
 
 const BASE = 'https://lrclib.net';
-const DURATION_TOLERANCE_S = 2;
+// Duración APROXIMADA (no exacta): los MV suelen diferir unos segundos del audio.
+// El filtro de relevancia (artista/título) ya evita canciones equivocadas.
+const DURATION_TOLERANCE_S = 10;
 const MEMO_TTL_MS = 60_000;
-const TIMEOUT_MS = 5000;
+// lrclib.net puede ir lento (a veces ~10 s); timeout generoso para no abortar antes.
+const TIMEOUT_MS = 15_000;
 
 /** Forma (parcial, no confiable) de un resultado de /api/search. */
 export interface LrclibCandidate {
@@ -44,13 +48,17 @@ function toCandidates(data: unknown): LrclibCandidate[] {
   return Array.isArray(data) ? (data.filter((c) => c && typeof c === 'object') as LrclibCandidate[]) : [];
 }
 
+function candKey(c: LrclibCandidate): string {
+  return c.id != null ? `id:${c.id}` : `${c.artistName}|${c.trackName}|${c.duration}`;
+}
+
 // Memo compartido entre los dos proveedores para no pegar dos veces a LRCLIB por canción.
 const memo = new Map<string, { ts: number; data: LrclibCandidate[] }>();
 
 /**
- * Busca en 2 PASOS para minimizar peticiones (latencia/rate-limiting):
- * 1) por campos (preciso); si no devuelve nada,
- * 2) general `q=` (recall para japonés/romaji). El filtro por duración desempata.
+ * Busca por campos y por `q=` EN PARALELO y une los candidatos únicos. Paralelo (no
+ * secuencial) para no sumar latencias cuando lrclib va lento. El filtro de relevancia
+ * (artista/título) + duración desempatan después.
  */
 async function searchLrclib(query: TrackQuery): Promise<LrclibCandidate[]> {
   const [fieldUrl, queryUrl] = buildSearchUrls(query);
@@ -59,51 +67,66 @@ async function searchLrclib(query: TrackQuery): Promise<LrclibCandidate[]> {
   if (cached && Date.now() - cached.ts < MEMO_TTL_MS) return cached.data;
 
   const headers = { Accept: 'application/json' };
-  let list = toCandidates(await fetchJson(fieldUrl!, { headers }, TIMEOUT_MS));
-  if (list.length === 0) {
-    list = toCandidates(await fetchJson(queryUrl!, { headers }, TIMEOUT_MS));
-  }
-  if (list.length > 0) memo.set(key, { ts: Date.now(), data: list });
-  return list;
-}
+  const [fieldData, queryData] = await Promise.all([
+    fetchJson(fieldUrl!, { headers }, TIMEOUT_MS),
+    fetchJson(queryUrl!, { headers }, TIMEOUT_MS),
+  ]);
 
-function withinDuration(c: LrclibCandidate, durationSec: number): boolean {
-  return typeof c.duration === 'number' && Math.abs(c.duration - durationSec) <= DURATION_TOLERANCE_S;
+  const merged: LrclibCandidate[] = [];
+  const seen = new Set<string>();
+  for (const c of [...toCandidates(fieldData), ...toCandidates(queryData)]) {
+    const k = candKey(c);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(c);
+  }
+  if (merged.length > 0) memo.set(key, { ts: Date.now(), data: merged });
+  return merged;
 }
 
 function pickBy(
   candidates: unknown,
-  durationSec: number | undefined,
+  query: TrackQuery,
   hasLyrics: (c: LrclibCandidate) => boolean,
 ): LrclibCandidate | null {
   if (!Array.isArray(candidates)) return null;
+  // Filtra por: tiene letra, no instrumental y RELEVANTE (artista/título coinciden).
   const matches = candidates.filter(
-    (c): c is LrclibCandidate => !!c && !(c as LrclibCandidate).instrumental && hasLyrics(c as LrclibCandidate),
+    (c): c is LrclibCandidate =>
+      !!c &&
+      !(c as LrclibCandidate).instrumental &&
+      hasLyrics(c as LrclibCandidate) &&
+      isRelevant((c as LrclibCandidate).trackName, (c as LrclibCandidate).artistName, query.title, query.artist),
   );
   if (matches.length === 0) return null;
-  if (durationSec == null) return matches[0]!;
-  const within = matches.filter((c) => withinDuration(c, durationSec));
-  if (within.length === 0) return null;
-  within.sort((a, b) => Math.abs(a.duration! - durationSec) - Math.abs(b.duration! - durationSec));
-  return within[0]!;
+
+  const dur = query.durationSec;
+  // Si hay duración, exige estar dentro de la ventana APROXIMADA (±10 s).
+  const pool =
+    dur == null
+      ? matches
+      : matches.filter((c) => typeof c.duration === 'number' && Math.abs(c.duration - dur) <= DURATION_TOLERANCE_S);
+  if (pool.length === 0) return null;
+
+  // Prefiere más señales coincidentes (artista+título); luego, duración más cercana.
+  pool.sort((a, b) => {
+    const sa = relevanceScore(a.trackName, a.artistName, query.title, query.artist);
+    const sb = relevanceScore(b.trackName, b.artistName, query.title, query.artist);
+    if (sa !== sb) return sb - sa;
+    if (dur == null) return 0;
+    return Math.abs((a.duration ?? Infinity) - dur) - Math.abs((b.duration ?? Infinity) - dur);
+  });
+  return pool[0]!;
 }
 
-/** Elige el mejor candidato con letra SINCRONIZADA (±2 s; rechaza si no encaja). */
-export function pickCandidate(candidates: unknown, durationSec?: number): LrclibCandidate | null {
-  return pickBy(
-    candidates,
-    durationSec,
-    (c) => typeof c.syncedLyrics === 'string' && c.syncedLyrics.trim().length > 0,
-  );
+/** Elige el mejor candidato con letra SINCRONIZADA (relevante + ±2 s). */
+export function pickCandidate(candidates: unknown, query: TrackQuery): LrclibCandidate | null {
+  return pickBy(candidates, query, (c) => typeof c.syncedLyrics === 'string' && c.syncedLyrics.trim().length > 0);
 }
 
 /** Elige el mejor candidato con TEXTO PLANO (cuando no hay sincronizada). */
-export function pickPlain(candidates: unknown, durationSec?: number): LrclibCandidate | null {
-  return pickBy(
-    candidates,
-    durationSec,
-    (c) => typeof c.plainLyrics === 'string' && c.plainLyrics.trim().length > 0,
-  );
+export function pickPlain(candidates: unknown, query: TrackQuery): LrclibCandidate | null {
+  return pickBy(candidates, query, (c) => typeof c.plainLyrics === 'string' && c.plainLyrics.trim().length > 0);
 }
 
 /** Normaliza un candidato sincronizado al modelo interno (o null si no parsea). */
@@ -119,7 +142,7 @@ export const lrclibProvider: LyricsProvider = {
   enabledByDefault: true,
   async fetch(query: TrackQuery): Promise<LyricsDoc | null> {
     const data = await searchLrclib(query);
-    const cand = pickCandidate(data, query.durationSec);
+    const cand = pickCandidate(data, query);
     if (!cand) return null;
     return candidateToDoc(cand, query.durationSec);
   },
@@ -131,7 +154,7 @@ export const lrclibPlainProvider: LyricsProvider = {
   async fetch(query: TrackQuery): Promise<LyricsDoc | null> {
     const durationSec = query.durationSec ?? undefined;
     const data = await searchLrclib(query);
-    const cand = pickPlain(data, durationSec);
+    const cand = pickPlain(data, query);
     if (!cand || typeof cand.plainLyrics !== 'string') return null;
     // Sin duración no podemos interpolar bien: usamos la del candidato si la hay.
     const dur = durationSec ?? cand.duration;

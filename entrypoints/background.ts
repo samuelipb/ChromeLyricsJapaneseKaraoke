@@ -30,6 +30,23 @@ async function getProviders(): Promise<LyricsProvider[]> {
 // mejoras del matching). Súbelo si cambia el esquema o la lógica de proveedores.
 const CACHE_PREFIX = 'lyrics:v2:';
 const OFFSCREEN_URL = 'offscreen.html';
+const ENABLED_KEY = 'enabled';
+
+// --- Encendido/apagado por el icono de la barra --------------------------
+async function isEnabled(): Promise<boolean> {
+  const got = await browser.storage.local.get(ENABLED_KEY);
+  return got[ENABLED_KEY] !== false; // por defecto: activado
+}
+
+async function reflectBadge(enabled: boolean): Promise<void> {
+  try {
+    await browser.action.setBadgeText({ text: enabled ? '' : 'OFF' });
+    await browser.action.setBadgeBackgroundColor({ color: '#888888' });
+    await browser.action.setTitle({ title: enabled ? 'Letras JP: activado (clic para desactivar)' : 'Letras JP: desactivado (clic para activar)' });
+  } catch {
+    /* el icono puede no estar listo en algunos contextos */
+  }
+}
 
 interface CacheEntry {
   doc: GetLyricsResponse['doc'];
@@ -39,30 +56,44 @@ interface CacheEntry {
 
 async function handleGetLyrics(query: TrackQuery, force = false): Promise<GetLyricsResponse> {
   const key = CACHE_PREFIX + query.videoId;
+  const debug: string[] = [];
+  const t0 = Date.now();
+  debug.push(
+    `query: "${query.title}"${query.artist ? ` — ${query.artist}` : ' (sin artista)'}` +
+      `${query.durationSec ? ` · ${Math.round(query.durationSec)}s` : ''}`,
+  );
 
   if (force) {
     await browser.storage.local.remove(key); // "borrar caché de esta canción"
+    debug.push('caché: borrada (re-buscar)');
   } else {
     const stored = await browser.storage.local.get(key);
     const hit = stored[key] as CacheEntry | undefined;
-    // Solo usamos la caché POSITIVA: un "no encontrado" nunca se cachea ni se reutiliza,
-    // así una mejora de matching surte efecto sin quedar enmascarada.
-    if (hit && hit.doc) return { doc: hit.doc, source: hit.source, cached: true };
+    // Solo usamos la caché POSITIVA: un "no encontrado" nunca se cachea ni se reutiliza.
+    if (hit && hit.doc) {
+      debug.push(`caché: HIT (${hit.source}, ${hit.doc.lines.length} líneas)`);
+      return { doc: hit.doc, source: hit.source, cached: true, debug };
+    }
+    debug.push('caché: miss');
   }
 
   let doc: GetLyricsResponse['doc'] = null;
   let source: string | null = null;
   const providers = await getProviders();
+  debug.push(`cadena: ${providers.map((p) => p.id).join(' → ')}`);
   for (const provider of providers) {
+    const ts = Date.now();
     try {
       const result = await provider.fetch(query);
       if (result) {
+        debug.push(`${provider.id}: ✓ ${result.lines.length} líneas (${Date.now() - ts}ms)`);
         doc = result;
         source = provider.id;
         break;
       }
-    } catch {
-      // Un proveedor que falla no debe tumbar la cadena.
+      debug.push(`${provider.id}: sin resultado (${Date.now() - ts}ms)`);
+    } catch (e) {
+      debug.push(`${provider.id}: error ${e instanceof Error ? e.message : e} (${Date.now() - ts}ms)`);
     }
   }
 
@@ -71,7 +102,8 @@ async function handleGetLyrics(query: TrackQuery, force = false): Promise<GetLyr
     const entry: CacheEntry = { doc, source, ts: Date.now() };
     await browser.storage.local.set({ [key]: entry });
   }
-  return { doc, source, cached: false };
+  debug.push(`total: ${Date.now() - t0}ms → ${source ?? 'SIN LETRA'}`);
+  return { doc, source, cached: false, debug };
 }
 
 // --- Offscreen (tokenizador kuromoji) -------------------------------------
@@ -133,6 +165,8 @@ async function handleTokenize(text: string): Promise<TokenizeResponse> {
 export default defineBackground(() => {
   console.log('[letras-jp] service worker listo');
 
+  // IMPORTANTE: registrar el listener de mensajes PRIMERO, para que la búsqueda de
+  // letra funcione aunque algo del icono/insignia falle.
   browser.runtime.onMessage.addListener(
     (message: ExtMessage): Promise<GetLyricsResponse | TokenizeResponse> | undefined => {
       if (message?.type === 'GET_LYRICS') {
@@ -146,4 +180,16 @@ export default defineBackground(() => {
       return undefined;
     },
   );
+
+  // Encendido/apagado por el icono. Defensivo: si la API no está, no rompe lo demás.
+  try {
+    void isEnabled().then(reflectBadge);
+    browser.action?.onClicked.addListener(async () => {
+      const next = !(await isEnabled());
+      await browser.storage.local.set({ [ENABLED_KEY]: next });
+      await reflectBadge(next);
+    });
+  } catch (e) {
+    console.error('[letras-jp] no se pudo configurar el icono:', e);
+  }
 });

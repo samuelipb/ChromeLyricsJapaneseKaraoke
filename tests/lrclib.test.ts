@@ -7,36 +7,64 @@ import {
   lrclibPlainProvider,
   type LrclibCandidate,
 } from '../lib/providers/lrclib';
+import type { TrackQuery } from '../lib/model';
 
 const synced = '[00:01.00]a\n[00:03.00]b';
 
 function cand(over: Partial<LrclibCandidate>): LrclibCandidate {
   return { trackName: 't', artistName: 'a', duration: 100, syncedLyrics: synced, ...over };
 }
+function q(over: Partial<TrackQuery> = {}): TrackQuery {
+  return { title: 't', artist: 'a', videoId: 'x', ...over };
+}
 
 describe('pickCandidate', () => {
   it('rechaza si no es un array', () => {
-    expect(pickCandidate(null)).toBeNull();
-    expect(pickCandidate({})).toBeNull();
+    expect(pickCandidate(null, q())).toBeNull();
+    expect(pickCandidate({}, q())).toBeNull();
   });
 
   it('ignora candidatos sin letra sincronizada o instrumentales', () => {
     const list = [cand({ syncedLyrics: null }), cand({ instrumental: true }), cand({ id: 7 })];
-    expect(pickCandidate(list)?.id).toBe(7);
+    expect(pickCandidate(list, q())?.id).toBe(7);
   });
 
   it('exige duración dentro de ±2 s y elige la más cercana', () => {
     const list = [cand({ id: 1, duration: 90 }), cand({ id: 2, duration: 101 }), cand({ id: 3, duration: 103 })];
-    expect(pickCandidate(list, 100)?.id).toBe(2);
+    expect(pickCandidate(list, q({ durationSec: 100 }))?.id).toBe(2);
   });
 
   it('rechaza todo si ninguna duración encaja (no mostrar canción equivocada)', () => {
     const list = [cand({ duration: 80 }), cand({ duration: 120 })];
-    expect(pickCandidate(list, 100)).toBeNull();
+    expect(pickCandidate(list, q({ durationSec: 100 }))).toBeNull();
   });
 
-  it('sin duración, toma el primero con letra sincronizada', () => {
-    expect(pickCandidate([cand({ id: 5 })])?.id).toBe(5);
+  it('acepta duración APROXIMADA (±10 s), no exacta (caso Black Catcher)', () => {
+    expect(pickCandidate([cand({ id: 8, duration: 191 })], q({ durationSec: 199 }))?.id).toBe(8);
+  });
+
+  it('dentro de la ventana, prefiere el candidato con título coincidente', () => {
+    const list = [
+      cand({ id: 1, trackName: 'Otra Cancion', duration: 200 }), // duración más cercana, título distinto
+      cand({ id: 2, trackName: 'Black Catcher', duration: 205 }), // título coincide
+    ];
+    expect(pickCandidate(list, q({ title: 'Black Catcher', durationSec: 200 }))?.id).toBe(2);
+  });
+
+  it('rechaza canción equivocada (otro artista Y otro título) aunque la duración encaje', () => {
+    const list = [cand({ artistName: 'Otro Artista', trackName: 'Otra Cancion', duration: 100 })];
+    expect(pickCandidate(list, q({ title: 'Black Catcher', artist: 'YOASOBI', durationSec: 100 }))).toBeNull();
+  });
+
+  it('acepta si coincide el TÍTULO aunque el artista esté en otro script (caso Black Catcher)', () => {
+    // YouTube: artista "ビッケブランカ"; LRCLIB lo guarda como "Vickeblanka" (romaji) → no casa el
+    // artista, pero el título "Black Catcher" sí.
+    const list = [cand({ id: 5, artistName: 'Vickeblanka', trackName: 'Black Catcher', duration: 197 })];
+    expect(pickCandidate(list, q({ title: 'Black Catcher', artist: 'ビッケブランカ', durationSec: 199 }))?.id).toBe(5);
+  });
+
+  it('sin duración, toma el primero relevante con letra sincronizada', () => {
+    expect(pickCandidate([cand({ id: 5 })], q())?.id).toBe(5);
   });
 });
 
@@ -46,11 +74,11 @@ describe('pickPlain', () => {
       cand({ id: 1, syncedLyrics: null, plainLyrics: 'a\nb', duration: 101 }),
       cand({ id: 2, syncedLyrics: null, plainLyrics: null, duration: 100 }),
     ];
-    expect(pickPlain(list, 100)?.id).toBe(1);
+    expect(pickPlain(list, q({ durationSec: 100 }))?.id).toBe(1);
   });
   it('ignora instrumentales y rechaza si la duración no encaja', () => {
-    expect(pickPlain([cand({ syncedLyrics: null, plainLyrics: 'x', duration: 130 })], 100)).toBeNull();
-    expect(pickPlain([cand({ instrumental: true, plainLyrics: 'x' })])).toBeNull();
+    expect(pickPlain([cand({ syncedLyrics: null, plainLyrics: 'x', duration: 130 })], q({ durationSec: 100 }))).toBeNull();
+    expect(pickPlain([cand({ instrumental: true, plainLyrics: 'x' })], q())).toBeNull();
   });
 });
 
@@ -61,7 +89,7 @@ describe('lrclibPlainProvider.fetch', () => {
       'fetch',
       vi.fn(async () => new Response(JSON.stringify([cand({ syncedLyrics: null, plainLyrics: 'いち\nに\nさん', duration: 30 })]), { status: 200 })),
     );
-    const doc = await lrclibPlainProvider.fetch({ title: 'a', durationSec: 30, videoId: 'p1' });
+    const doc = await lrclibPlainProvider.fetch({ title: 't', durationSec: 30, videoId: 'p1' });
     expect(doc?.source).toBe('lrclib-plain');
     expect(doc?.hasWordTiming).toBe(false);
     expect(doc?.lines).toHaveLength(3);
@@ -90,7 +118,7 @@ describe('lrclibProvider.fetch', () => {
       'fetch',
       vi.fn(async () => new Response(JSON.stringify([cand({ duration: 100 })]), { status: 200 })),
     );
-    const doc = await lrclibProvider.fetch({ title: 'a', artist: 'b', durationSec: 100, videoId: 'x' });
+    const doc = await lrclibProvider.fetch({ title: 't', artist: 'a', durationSec: 100, videoId: 'x' });
     expect(doc?.lines).toHaveLength(2);
   });
 
@@ -111,7 +139,7 @@ describe('lrclibProvider.fetch', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        const body = url.includes('q=') ? [cand({ id: 99, duration: 241 })] : [];
+        const body = url.includes('q=') ? [cand({ id: 99, duration: 241, artistName: 'Qtest' })] : [];
         return new Response(JSON.stringify(body), { status: 200 });
       }),
     );
