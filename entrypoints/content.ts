@@ -50,10 +50,8 @@ export default defineContentScript({
 
     function ensureTokenizer(): Tokenizer {
       if (!tokenizer) {
-        // getURL está tipado con rutas conocidas de public/; el diccionario se carga por
-        // su DIRECTORIO, así que casteamos la firma a (string) => string.
-        const getURL = browser.runtime.getURL as (path: string) => string;
-        tokenizer = new Tokenizer(getURL('dict/'));
+        tokenizer = new Tokenizer();
+        tokenizer.onError = (msg) => setStatus('⚠️ furigana: ' + msg);
       }
       return tokenizer;
     }

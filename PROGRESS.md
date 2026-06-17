@@ -10,13 +10,18 @@
 - **Fase:** 3 — Furigana (kuromoji en Worker) + toggles furigana/romaji → **CÓDIGO COMPLETO**
   en rama `feat/fase-3-furigana` (typecheck, 45 tests y build verdes). **Pendiente tu prueba
   manual en Chrome** (kuromoji solo se puede verificar cargando la extensión); luego merge + tag.
-- **Hecho en Fase 3:** `lib/tokenizer/furigana.ts` (ruby okurigana-aware + romaji, 11 tests),
-  Worker kuromoji (`lib/tokenizer/worker.ts` + `client.ts` + `protocol.ts`) que corre FUERA del
-  hilo principal y cachea por línea; diccionario kuromoji **vendorizado** en `public/dict/`
-  (~17 MB, se versiona); render de `<ruby>` por NODOS del DOM en el content script; botones
-  **ふりがな** / **ローマ字** (persistidos en storage). Deps fijadas: `kuromoji`, `wanakana`.
-  Shim `lib/shims/path.ts` (alias Vite) para que kuromoji cargue el dict en el Worker sin
-  romper `chrome-extension://`. WAR: `dict/*` + `assets/*` (solo YouTube).
+- **Hecho en Fase 3:** `lib/tokenizer/furigana.ts` (ruby okurigana-aware + romaji, 11 tests).
+  Diccionario kuromoji **vendorizado** en `public/dict/` (~17 MB, se versiona). Render de
+  `<ruby>` por NODOS del DOM en el content script; botones **ふりがな** / **ローマ字**
+  (persistidos en storage). Deps fijadas: `kuromoji`, `wanakana`. Shim `lib/shims/path.ts`
+  (alias Vite) para que kuromoji construya la URL del dict sin romper `chrome-extension://`.
+- **PIVOTE de arquitectura del tokenizador:** el Worker desde content script **lo bloquea el
+  CSP de YouTube** (`worker-src`). Solución implementada: **offscreen document**
+  (`entrypoints/offscreen/`) que corre kuromoji en el origen de la extensión (sin CSP de
+  YouTube); el **background** gestiona su ciclo de vida (`chrome.offscreen`) y hace de **relé**;
+  el content pide tokens por mensaje (`lib/tokenizer/client.ts`). Permiso nuevo: **`offscreen`**
+  (aprobado por el usuario). Ya NO se necesitan `web_accessible_resources`. **Pendiente verificar
+  en Chrome que ahora sí aparece la furigana.**
 - **Fase 2** COMPLETADA Y VERIFICADA, mergeada a `main` + **tag `fase-2`** (solo LRCLIB;
   timedtext diferido a Fase 4).
 - **Aprendizaje de cobertura:** el video de あいみょん `IL35V9wYr-U` no mostró letra porque
@@ -49,6 +54,9 @@
   "Música" de YouTube (Song/Artist estructurado), más fiable que limpiar el título.
 - **Pedido del usuario (Fase 6):** control para **aumentar/reducir el tamaño de fuente de la
   letra en tiempo real** (+/− en overlay o atajos), persistido en storage. Anotado en `Plan.md`.
+- **Pedido del usuario (Fase 6):** **ajuste de offset de sincronización por canción**
+  (adelantar/atrasar la letra ±pasos, persistido por `videoId`) para cuando los tiempos de la
+  fuente no casan con el audio (ej. video `SII-S-zCg-c`). Anotado en `Plan.md` y `karaoke-sync.md`.
 
 ## 🧭 Cómo probar la Fase 1 (manual, lo hace el usuario)
 1. `npm run build` (ya corrido) → genera `.output/chrome-mv3`.

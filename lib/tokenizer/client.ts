@@ -1,42 +1,37 @@
-// Cliente del Worker del tokenizador, usado por el content script.
-// Cachea la tokenización por texto de línea (clave = texto) para no re-tokenizar en cada seek.
+// Cliente de tokenización para el content script: pide tokens al background (que los
+// obtiene del offscreen document, donde corre kuromoji). Cachea por texto de línea.
+import { browser } from 'wxt/browser';
 import type { KToken } from './furigana';
-import type { TokenizeRequest, TokenizeResponse } from './protocol';
+import type { TokenizeMessage, TokenizeResponse } from '../messaging';
 
 export class Tokenizer {
-  private worker: Worker;
-  private seq = 0;
-  private pending = new Map<number, { resolve: (t: KToken[]) => void; reject: (e: Error) => void }>();
   private cache = new Map<string, KToken[]>();
-
-  constructor(private dicPath: string) {
-    this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-    this.worker.onmessage = (e: MessageEvent<TokenizeResponse>) => {
-      const r = e.data;
-      const p = this.pending.get(r.id);
-      if (!p) return;
-      this.pending.delete(r.id);
-      if ('error' in r) p.reject(new Error(r.error));
-      else p.resolve(r.tokens);
-    };
-  }
+  /** Notificación de errores (para mostrarlos en el overlay). */
+  onError?: (msg: string) => void;
 
   async tokenize(text: string): Promise<KToken[]> {
     const hit = this.cache.get(text);
     if (hit) return hit;
-    const id = ++this.seq;
-    const req: TokenizeRequest = { id, type: 'TOKENIZE', text, dicPath: this.dicPath };
-    const tokens = await new Promise<KToken[]>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.worker.postMessage(req);
-    });
-    this.cache.set(text, tokens);
-    return tokens;
+
+    const msg: TokenizeMessage = { type: 'TOKENIZE', text };
+    let res: TokenizeResponse | undefined;
+    try {
+      res = (await browser.runtime.sendMessage(msg)) as TokenizeResponse | undefined;
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      this.onError?.(m);
+      throw new Error(m);
+    }
+    if (!res || res.error || !res.tokens) {
+      const m = res?.error ?? 'sin respuesta del tokenizador';
+      this.onError?.(m);
+      throw new Error(m);
+    }
+    this.cache.set(text, res.tokens);
+    return res.tokens;
   }
 
   terminate(): void {
-    this.worker.terminate();
-    this.pending.clear();
     this.cache.clear();
   }
 }

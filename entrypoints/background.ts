@@ -1,14 +1,19 @@
-// Service worker (efímero): orquesta proveedores de letras y cachea por videoId.
-// Ver .claude/rules/mv3.md y lyrics-providers.md. No guardar estado en variables de
-// módulo asumiendo persistencia: la caché vive en chrome.storage.local.
+// Service worker (efímero): orquesta proveedores de letras, cachea por videoId y hace de
+// relé hacia el offscreen document para la tokenización (kuromoji). Ver rules/mv3.md.
 import type { LyricsProvider, TrackQuery } from '../lib/model';
-import type { ExtMessage, GetLyricsResponse } from '../lib/messaging';
+import type {
+  ExtMessage,
+  GetLyricsResponse,
+  OffscreenTokenizeMessage,
+  TokenizeResponse,
+} from '../lib/messaging';
 import { lrclibProvider } from '../lib/providers/lrclib';
 
 // Cadena de proveedores por prioridad (Fase 2: solo LRCLIB por línea).
 const PROVIDERS: LyricsProvider[] = [lrclibProvider];
 
 const CACHE_PREFIX = 'lyrics:';
+const OFFSCREEN_URL = 'offscreen.html';
 
 interface CacheEntry {
   doc: GetLyricsResponse['doc'];
@@ -39,22 +44,57 @@ async function handleGetLyrics(query: TrackQuery): Promise<GetLyricsResponse> {
     }
   }
 
-  // Cachea también el "no encontrado" (doc=null) para no repegar cada vez.
   const entry: CacheEntry = { doc, source, ts: Date.now() };
   await browser.storage.local.set({ [key]: entry });
   return { doc, source, cached: false };
 }
 
+// --- Offscreen (tokenizador kuromoji) -------------------------------------
+let creatingOffscreen: Promise<void> | null = null;
+
+async function ensureOffscreen(): Promise<void> {
+  if (await chrome.offscreen.hasDocument()) return;
+  if (creatingOffscreen) return creatingOffscreen;
+  creatingOffscreen = chrome.offscreen
+    .createDocument({
+      url: OFFSCREEN_URL,
+      reasons: ['DOM_PARSER'],
+      justification: 'Análisis morfológico japonés (kuromoji) para generar furigana.',
+    })
+    .catch(() => {
+      // Si ya existía por una carrera, no es error.
+    })
+    .finally(() => {
+      creatingOffscreen = null;
+    });
+  return creatingOffscreen;
+}
+
+async function handleTokenize(text: string): Promise<TokenizeResponse> {
+  try {
+    await ensureOffscreen();
+    const relay: OffscreenTokenizeMessage = { target: 'offscreen', type: 'TOKENIZE', text };
+    const res = (await browser.runtime.sendMessage(relay)) as TokenizeResponse | undefined;
+    return res ?? { tokens: null, error: 'sin respuesta del offscreen' };
+  } catch (e) {
+    return { tokens: null, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export default defineBackground(() => {
   console.log('[letras-jp] service worker listo');
 
-  // El polyfill `browser` envía la respuesta cuando el listener devuelve una Promise.
-  browser.runtime.onMessage.addListener((msg: ExtMessage): Promise<GetLyricsResponse> | undefined => {
-    if (msg?.type === 'GET_LYRICS') {
-      return handleGetLyrics(msg.query).catch(
-        () => ({ doc: null, source: null, cached: false } satisfies GetLyricsResponse),
-      );
-    }
-    return undefined;
-  });
+  browser.runtime.onMessage.addListener(
+    (message: ExtMessage): Promise<GetLyricsResponse | TokenizeResponse> | undefined => {
+      if (message?.type === 'GET_LYRICS') {
+        return handleGetLyrics(message.query).catch(
+          () => ({ doc: null, source: null, cached: false }) satisfies GetLyricsResponse,
+        );
+      }
+      if (message?.type === 'TOKENIZE') {
+        return handleTokenize(message.text);
+      }
+      return undefined;
+    },
+  );
 });
