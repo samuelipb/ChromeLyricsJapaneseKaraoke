@@ -16,6 +16,8 @@ const SETTINGS_KEY = 'settings';
 interface Settings {
   furigana: boolean;
   romaji: boolean;
+  /** Activa fuentes de letras opt-in (NetEase). Off por defecto (ToS). */
+  extraSources: boolean;
 }
 
 export default defineContentScript({
@@ -27,7 +29,7 @@ export default defineContentScript({
 
     // Tokenizador: vive toda la sesión del content script (no recarga el diccionario por video).
     let tokenizer: Tokenizer | null = null;
-    const settings: Settings = { furigana: true, romaji: false };
+    const settings: Settings = { furigana: true, romaji: false, extraSources: false };
 
     // Estado vivo por video (se descarta en cada reinicialización SPA).
     let overlay: HTMLElement | null = null;
@@ -38,6 +40,7 @@ export default defineContentScript({
     let nextEl: HTMLElement | null = null;
     let furiBtn: HTMLButtonElement | null = null;
     let romaBtn: HTMLButtonElement | null = null;
+    let neteaseBtn: HTMLButtonElement | null = null;
     let reloadBtn: HTMLButtonElement | null = null;
     let video: HTMLVideoElement | null = null;
     const videoListeners: Array<[keyof HTMLMediaElementEventMap, EventListener]> = [];
@@ -101,12 +104,15 @@ export default defineContentScript({
       Object.assign(statusEl.style, { fontSize: '11px', opacity: '0.7' });
       furiBtn = makeBtn('ふりがな', settings.furigana);
       romaBtn = makeBtn('ローマ字', settings.romaji);
+      neteaseBtn = makeBtn('NetEase', settings.extraSources);
+      neteaseBtn.title = 'Fuente extra opt-in (más cobertura japonesa). Re-busca al activar.';
       reloadBtn = makeBtn('🔄', false);
       reloadBtn.title = 'Re-buscar letra (ignora la caché de este video)';
       furiBtn.addEventListener('click', () => toggle('furigana'));
       romaBtn.addEventListener('click', () => toggle('romaji'));
+      neteaseBtn.addEventListener('click', () => toggleExtraSources());
       reloadBtn.addEventListener('click', () => kickoff(true));
-      bar.append(statusEl, furiBtn, romaBtn, reloadBtn);
+      bar.append(statusEl, furiBtn, romaBtn, neteaseBtn, reloadBtn);
 
       prevEl = document.createElement('div');
       curEl = document.createElement('div');
@@ -126,12 +132,22 @@ export default defineContentScript({
       if (statusEl) statusEl.textContent = text;
     }
 
-    function toggle(key: keyof Settings): void {
+    const ON = '#2d7ff9';
+    const OFF = 'rgba(255,255,255,0.18)';
+
+    function toggle(key: 'furigana' | 'romaji'): void {
       settings[key] = !settings[key];
-      if (furiBtn) furiBtn.style.background = settings.furigana ? '#2d7ff9' : 'rgba(255,255,255,0.18)';
-      if (romaBtn) romaBtn.style.background = settings.romaji ? '#2d7ff9' : 'rgba(255,255,255,0.18)';
+      if (furiBtn) furiBtn.style.background = settings.furigana ? ON : OFF;
+      if (romaBtn) romaBtn.style.background = settings.romaji ? ON : OFF;
       void browser.storage.local.set({ [SETTINGS_KEY]: settings });
       if (activeLine) renderCurrent(activeLine);
+    }
+
+    function toggleExtraSources(): void {
+      settings.extraSources = !settings.extraSources;
+      if (neteaseBtn) neteaseBtn.style.background = settings.extraSources ? ON : OFF;
+      // Persiste y RE-BUSCA (el background lee este ajuste para armar la cadena).
+      void browser.storage.local.set({ [SETTINGS_KEY]: settings }).then(() => kickoff(true));
     }
 
     async function loadSettings(): Promise<void> {
@@ -141,6 +157,7 @@ export default defineContentScript({
         if (s) {
           if (typeof s.furigana === 'boolean') settings.furigana = s.furigana;
           if (typeof s.romaji === 'boolean') settings.romaji = s.romaji;
+          if (typeof s.extraSources === 'boolean') settings.extraSources = s.extraSources;
         }
       } catch {
         /* usa los valores por defecto */
@@ -350,7 +367,7 @@ export default defineContentScript({
       lastIndex = -2;
       document.getElementById(OVERLAY_ID)?.remove();
       overlay = statusEl = prevEl = curEl = romajiEl = nextEl = null;
-      furiBtn = romaBtn = reloadBtn = null;
+      furiBtn = romaBtn = neteaseBtn = reloadBtn = null;
     }
 
     const onNavigate = () => {

@@ -12,7 +12,8 @@ export default defineConfig({
     // del CSP de YouTube). El offscreen es del origen de la extensión, así que el
     // diccionario NO necesita web_accessible_resources.
     permissions: ['storage', 'offscreen'],
-    // YouTube (página) + LRCLIB (única fuente de letras en Fase 2). Nunca <all_urls>.
-    host_permissions: ['*://www.youtube.com/*', 'https://lrclib.net/*'],
+    // YouTube (página) + fuentes de letras. NetEase es opt-in pero el permiso debe estar
+    // declarado para poder pedirla cuando el usuario la active. Nunca <all_urls>.
+    host_permissions: ['*://www.youtube.com/*', 'https://lrclib.net/*', 'https://music.163.com/*'],
   },
 });

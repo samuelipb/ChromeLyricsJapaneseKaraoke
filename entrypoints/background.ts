@@ -8,10 +8,23 @@ import type {
   TokenizeResponse,
 } from '../lib/messaging';
 import { lrclibPlainProvider, lrclibProvider } from '../lib/providers/lrclib';
+import { neteaseProvider } from '../lib/providers/netease';
 
-// Cadena de proveedores POR PRIORIDAD: sincronizada primero, texto plano interpolado
-// como último recurso. (timedtext de YouTube queda fuera: casi ningún MV tiene captions.)
-const PROVIDERS: LyricsProvider[] = [lrclibProvider, lrclibPlainProvider];
+// Cadena de proveedores POR PRIORIDAD. NetEase (opt-in) se intercala entre la
+// sincronizada de LRCLIB y el texto plano, solo si el usuario lo activó en ajustes.
+async function getProviders(): Promise<LyricsProvider[]> {
+  const chain: LyricsProvider[] = [lrclibProvider];
+  let extraSources = false;
+  try {
+    const got = await browser.storage.local.get('settings');
+    extraSources = (got.settings as { extraSources?: boolean } | undefined)?.extraSources === true;
+  } catch {
+    /* usa por defecto */
+  }
+  if (extraSources) chain.push(neteaseProvider);
+  chain.push(lrclibPlainProvider);
+  return chain;
+}
 
 // v2: invalida cachés viejas (antes se guardaban "no encontrado" que enmascaraban
 // mejoras del matching). Súbelo si cambia el esquema o la lógica de proveedores.
@@ -39,8 +52,8 @@ async function handleGetLyrics(query: TrackQuery, force = false): Promise<GetLyr
 
   let doc: GetLyricsResponse['doc'] = null;
   let source: string | null = null;
-  for (const provider of PROVIDERS) {
-    if (!provider.enabledByDefault) continue; // fuentes de riesgo: opt-in
+  const providers = await getProviders();
+  for (const provider of providers) {
     try {
       const result = await provider.fetch(query);
       if (result) {
