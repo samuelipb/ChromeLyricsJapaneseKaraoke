@@ -8,6 +8,8 @@ export default defineConfig({
     name: 'Letras JP — furigana + karaoke (YouTube)',
     description:
       'Letras japonesas con furigana y karaoke sincronizado sobre videos de YouTube (uso personal/educativo).',
+    // Botón de la barra: clic = activar/desactivar el overlay (sin popup).
+    action: { default_title: 'Letras JP: activar/desactivar' },
     // Permisos mínimos: storage (caché de letras) + offscreen (corre kuromoji fuera
     // del CSP de YouTube). El offscreen es del origen de la extensión, así que el
     // diccionario NO necesita web_accessible_resources.

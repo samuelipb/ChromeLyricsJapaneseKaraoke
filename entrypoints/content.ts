@@ -34,6 +34,7 @@ export default defineContentScript({
     let tokenizer: Tokenizer | null = null;
     const settings: Settings = { furigana: true, romaji: false, extraSources: false, debug: false };
     const debugLines: string[] = [];
+    let enabled = true; // encendido/apagado global (icono de la extensión)
 
     // Estado vivo por video (se descarta en cada reinicialización SPA).
     let overlay: HTMLElement | null = null;
@@ -460,6 +461,7 @@ export default defineContentScript({
     }
 
     function init(): void {
+      if (!enabled) return; // apagado desde el icono de la extensión
       if (!location.pathname.startsWith('/watch')) return;
       if (!overlay) buildOverlay();
       setStatus('🎤 Letras JP — iniciando…');
@@ -487,14 +489,37 @@ export default defineContentScript({
     };
     document.addEventListener('yt-navigate-finish', onNavigate);
 
+    // Reacciona al encendido/apagado desde el icono de la extensión (cambia `enabled`
+    // en storage.local; vale para todas las pestañas de YouTube a la vez).
+    const onStorage = (
+      changes: Record<string, { newValue?: unknown }>,
+      area: string,
+    ) => {
+      if (area !== 'local' || !changes.enabled) return;
+      enabled = changes.enabled.newValue !== false;
+      if (enabled) init();
+      else teardown();
+    };
+    browser.storage.onChanged.addListener(onStorage);
+
     ctx.onInvalidated(() => {
       document.removeEventListener('yt-navigate-finish', onNavigate);
+      browser.storage.onChanged.removeListener(onStorage);
       teardown();
       tokenizer?.terminate();
       tokenizer = null;
     });
 
-    // Carga preferencias y arranca.
-    void loadSettings().then(init);
+    async function loadEnabled(): Promise<void> {
+      try {
+        const got = await browser.storage.local.get('enabled');
+        enabled = got.enabled !== false; // por defecto: activado
+      } catch {
+        /* por defecto activado */
+      }
+    }
+
+    // Carga preferencias + estado on/off y arranca.
+    void Promise.all([loadSettings(), loadEnabled()]).then(init);
   },
 });

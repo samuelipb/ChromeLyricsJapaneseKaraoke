@@ -30,6 +30,23 @@ async function getProviders(): Promise<LyricsProvider[]> {
 // mejoras del matching). Súbelo si cambia el esquema o la lógica de proveedores.
 const CACHE_PREFIX = 'lyrics:v2:';
 const OFFSCREEN_URL = 'offscreen.html';
+const ENABLED_KEY = 'enabled';
+
+// --- Encendido/apagado por el icono de la barra --------------------------
+async function isEnabled(): Promise<boolean> {
+  const got = await browser.storage.local.get(ENABLED_KEY);
+  return got[ENABLED_KEY] !== false; // por defecto: activado
+}
+
+async function reflectBadge(enabled: boolean): Promise<void> {
+  try {
+    await browser.action.setBadgeText({ text: enabled ? '' : 'OFF' });
+    await browser.action.setBadgeBackgroundColor({ color: '#888888' });
+    await browser.action.setTitle({ title: enabled ? 'Letras JP: activado (clic para desactivar)' : 'Letras JP: desactivado (clic para activar)' });
+  } catch {
+    /* el icono puede no estar listo en algunos contextos */
+  }
+}
 
 interface CacheEntry {
   doc: GetLyricsResponse['doc'];
@@ -147,6 +164,14 @@ async function handleTokenize(text: string): Promise<TokenizeResponse> {
 
 export default defineBackground(() => {
   console.log('[letras-jp] service worker listo');
+
+  // Refleja el estado en la insignia al arrancar y al cambiar.
+  void isEnabled().then(reflectBadge);
+  browser.action.onClicked.addListener(async () => {
+    const next = !(await isEnabled());
+    await browser.storage.local.set({ [ENABLED_KEY]: next });
+    await reflectBadge(next);
+  });
 
   browser.runtime.onMessage.addListener(
     (message: ExtMessage): Promise<GetLyricsResponse | TokenizeResponse> | undefined => {
