@@ -7,21 +7,22 @@
 ---
 
 ## 📍 Estado actual
-- **Fase:** 3 — Furigana (kuromoji en Worker) + toggles furigana/romaji → **CÓDIGO COMPLETO**
-  en rama `feat/fase-3-furigana` (typecheck, 45 tests y build verdes). **Pendiente tu prueba
-  manual en Chrome** (kuromoji solo se puede verificar cargando la extensión); luego merge + tag.
+- **Fase:** 3 — Furigana + toggles furigana/romaji → **COMPLETADA Y VERIFICADA** por el usuario
+  (se ve la furigana sobre los kanji en videos reales). Mergeada a `main` + **tag `fase-3`**.
+- **Arquitectura final del tokenizador (tras 3 obstáculos resueltos):**
+  1. El **Worker** desde content script lo bloquea el **CSP de YouTube** (`worker-src`) →
+     pivote a **offscreen document** (`entrypoints/offscreen/`), origen de la extensión, sin CSP.
+     El **background** gestiona su ciclo de vida (`chrome.offscreen`) y hace de **relé**
+     (con reintentos hasta que el offscreen registra su listener); el content pide tokens por
+     mensaje (`lib/tokenizer/client.ts`). Permiso nuevo **`offscreen`**.
+  2. **zlibjs** (descompresión del kuromoji clásico) revienta en ESM ("'zlib' in undefined") →
+     cambio a la fork **`@sglkc/kuromoji`** (fetch + **fflate**, ESM, sin node `path`).
+  3. El loader de la fork **colapsa todas las barras** y rompía `chrome-extension://` →
+     se carga con **ruta de origen `/dict`** (resuelve relativa al offscreen).
 - **Hecho en Fase 3:** `lib/tokenizer/furigana.ts` (ruby okurigana-aware + romaji, 11 tests).
-  Diccionario kuromoji **vendorizado** en `public/dict/` (~17 MB, se versiona). Render de
-  `<ruby>` por NODOS del DOM en el content script; botones **ふりがな** / **ローマ字**
-  (persistidos en storage). Deps fijadas: `kuromoji`, `wanakana`. Shim `lib/shims/path.ts`
-  (alias Vite) para que kuromoji construya la URL del dict sin romper `chrome-extension://`.
-- **PIVOTE de arquitectura del tokenizador:** el Worker desde content script **lo bloquea el
-  CSP de YouTube** (`worker-src`). Solución implementada: **offscreen document**
-  (`entrypoints/offscreen/`) que corre kuromoji en el origen de la extensión (sin CSP de
-  YouTube); el **background** gestiona su ciclo de vida (`chrome.offscreen`) y hace de **relé**;
-  el content pide tokens por mensaje (`lib/tokenizer/client.ts`). Permiso nuevo: **`offscreen`**
-  (aprobado por el usuario). Ya NO se necesitan `web_accessible_resources`. **Pendiente verificar
-  en Chrome que ahora sí aparece la furigana.**
+  Diccionario vendorizado en `public/dict/` (~17 MB). Render de `<ruby>` por NODOS del DOM;
+  botones **ふりがな** / **ローマ字** persistidos en storage. Deps fijadas: `@sglkc/kuromoji`,
+  `wanakana`. NO se necesitan `web_accessible_resources`.
 - **Fase 2** COMPLETADA Y VERIFICADA, mergeada a `main` + **tag `fase-2`** (solo LRCLIB;
   timedtext diferido a Fase 4).
 - **Aprendizaje de cobertura:** el video de あいみょん `IL35V9wYr-U` no mostró letra porque
@@ -48,7 +49,7 @@
   `https://lrclib.net/*` y el permiso `storage` para la caché por `videoId`.
   *(Aprobado y ya implementado — ver Estado actual.)*
 
-- **▶️ PRÓXIMA TAREA:** verificar la Fase 3 en Chrome; luego **Fase 4 — cadena multi-fuente**.
+- **▶️ PRÓXIMA TAREA:** **Fase 4 — cadena multi-fuente** + normalización + caché por videoId.
 - **Diferido a Fase 4 (cadena multi-fuente):** proveedor de subtítulos de YouTube (timedtext,
   prioridad #1), texto plano interpolado como respaldo, y mejora de detección con el panel
   "Música" de YouTube (Song/Artist estructurado), más fiable que limpiar el título.
@@ -126,12 +127,12 @@
   Enhanced LRC cacheado. Discutir alcance/legalidad/coste antes de implementar.
 
 ## 📒 Bitácora (log breve por tarea)
-- **[Fase 3]** Furigana: lógica pura `lib/tokenizer/furigana.ts` (ruby okurigana-aware +
-  romaji con corrección de partículas は/へ; 11 tests). Worker kuromoji (worker/client/protocol)
-  fuera del hilo principal, caché por línea. Diccionario vendorizado en `public/dict/` (~17 MB).
-  Render `<ruby>` por nodos + toggles ふりがな/ローマ字 persistidos. Shim `path` (alias Vite) +
-  WAR `dict/*`,`assets/*`. Deps `kuromoji`+`wanakana` (pin). typecheck/45 tests/build verdes.
-  → **Detenido para prueba manual en Chrome antes de merge + tag `fase-3`.**
+- **[Fase 3]** Furigana: lógica pura `furigana.ts` (ruby okurigana-aware + romaji con corrección
+  de partículas は/へ; 11 tests). Tokenizador en **offscreen document** (kuromoji fuera del CSP de
+  YouTube), background como relé, caché por línea. Diccionario vendorizado `public/dict/` (~17 MB).
+  Render `<ruby>` por nodos + toggles ふりがな/ローマ字 persistidos. Tras resolver 3 obstáculos
+  (CSP worker→offscreen; zlibjs→`@sglkc/kuromoji`+fflate; URL del dict→`/dict`). Deps
+  `@sglkc/kuromoji`+`wanakana` (pin). **Verificado por el usuario.** Merge a `main` + tag `fase-3`.
 - **[Fase 2]** Detección de pista + LRCLIB + letra por línea. `lib/`: model, lrc parser,
   lrclib provider (matching ±2 s), title normalizer (heurística `『』`), messaging. Background
   orquesta + cachea por videoId (storage.local). Content script: detect desde DOM + render

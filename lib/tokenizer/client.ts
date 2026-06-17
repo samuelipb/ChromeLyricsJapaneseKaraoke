@@ -15,7 +15,6 @@ export class Tokenizer {
 
     const msg: TokenizeMessage = { type: 'TOKENIZE', text };
     let res: TokenizeResponse | undefined;
-    console.log('[letras-jp] content: pido tokens →', text.slice(0, 16));
     try {
       res = (await browser.runtime.sendMessage(msg)) as TokenizeResponse | undefined;
     } catch (e) {
