@@ -37,6 +37,11 @@ export interface TrackQuery {
   durationSec?: number;
   videoId: string;
   lang?: string;
+  /** Título COMPLETO ya limpio del video (sin partir). Se compara contra el título
+   *  canónico de cada candidato (estrategia robusta, evita partir mal el título). */
+  rawTitle?: string;
+  /** Nombre del canal (pista del artista). */
+  channel?: string;
 }
 
 /** Contrato común de cada fuente de letras. */

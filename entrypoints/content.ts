@@ -6,7 +6,7 @@ import type { LyricsDoc, Line } from '../lib/model';
 import { lineText } from '../lib/model';
 import type { GetLyricsMessage, GetLyricsResponse } from '../lib/messaging';
 import type { TrackQuery } from '../lib/model';
-import { parseTrack } from '../lib/normalizer/title';
+import { cleanChannel, cleanTitle, parseTrack } from '../lib/normalizer/title';
 import { Tokenizer } from '../lib/tokenizer/client';
 import { tokensToRomaji, tokensToRuby, type RubySegment } from '../lib/tokenizer/furigana';
 import { wipeProgress } from '../lib/sync/wipe';
@@ -445,18 +445,22 @@ export default defineContentScript({
     function detectTrack(): TrackQuery | null {
       const videoId = new URLSearchParams(location.search).get('v');
       if (!videoId) return null;
-      const rawTitle = document.title
+      const ytTitle = document.title
         .replace(/^\(\d+\)\s*/, '')
         .replace(/\s*-\s*YouTube\s*$/i, '')
         .trim();
-      if (!rawTitle) return null;
-      const channel =
+      if (!ytTitle) return null;
+      const channelRaw =
         document.querySelector<HTMLElement>(
           'ytd-watch-metadata #owner #channel-name a, #upload-info #channel-name a, ytd-channel-name a',
         )?.textContent?.trim() ?? undefined;
-      const { title, artist } = parseTrack(rawTitle, channel);
+      const channel = channelRaw ? cleanChannel(channelRaw) : undefined;
+      // Título completo ya limpio (sin partir) para comparar contra los títulos canónicos.
+      const rawTitle = cleanTitle(ytTitle);
+      // Partición heurística (artista/título) solo para la búsqueda por campos.
+      const { title, artist } = parseTrack(ytTitle, channelRaw);
       const durationSec = video && Number.isFinite(video.duration) ? video.duration : undefined;
-      return { title, artist, durationSec, videoId };
+      return { title, artist, durationSec, videoId, rawTitle, channel };
     }
 
     async function requestLyrics(query: TrackQuery, force = false): Promise<void> {

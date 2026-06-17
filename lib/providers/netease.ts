@@ -19,7 +19,7 @@ interface NeteaseSong {
 }
 
 function buildQuery(q: TrackQuery): string {
-  return [q.artist, q.title].filter(Boolean).join(' ');
+  return [q.rawTitle ?? q.title, q.channel ?? q.artist].filter(Boolean).join(' ');
 }
 
 function songArtist(s: NeteaseSong): string {
@@ -33,11 +33,13 @@ function songArtist(s: NeteaseSong): string {
  */
 export function pickSong(songs: unknown, query: TrackQuery): NeteaseSong | null {
   if (!Array.isArray(songs)) return null;
+  const videoText = query.rawTitle ?? query.title;
+  const channel = query.channel ?? query.artist;
   const valid = songs.filter(
     (s): s is NeteaseSong =>
       !!s &&
       typeof (s as NeteaseSong).id === 'number' &&
-      isRelevant((s as NeteaseSong).name, songArtist(s as NeteaseSong), query.title, query.artist),
+      isRelevant((s as NeteaseSong).name, songArtist(s as NeteaseSong), videoText, channel),
   );
   if (valid.length === 0) return null;
   const dur = query.durationSec;
@@ -49,8 +51,8 @@ export function pickSong(songs: unknown, query: TrackQuery): NeteaseSong | null 
 
   // Prefiere más señales coincidentes (artista+título); luego, duración más cercana.
   pool.sort((a, b) => {
-    const sa = relevanceScore(a.name, songArtist(a), query.title, query.artist);
-    const sb = relevanceScore(b.name, songArtist(b), query.title, query.artist);
+    const sa = relevanceScore(a.name, songArtist(a), videoText, channel);
+    const sb = relevanceScore(b.name, songArtist(b), videoText, channel);
     if (sa !== sb) return sb - sa;
     if (dur == null) return 0;
     return Math.abs((a.duration ?? Infinity) / 1000 - dur) - Math.abs((b.duration ?? Infinity) / 1000 - dur);
