@@ -8,8 +8,9 @@ export default defineConfig({
     name: 'Letras JP — furigana + karaoke (YouTube)',
     description:
       'Letras japonesas con furigana y karaoke sincronizado sobre videos de YouTube (uso personal/educativo).',
-    // Sin permisos de runtime todavía: el overlay "hola mundo" no necesita storage.
-    // `storage` se añadirá al introducir la caché por videoId (Fase 2/4).
-    host_permissions: ['*://www.youtube.com/*'],
+    // Permisos mínimos: storage para la caché de letras por videoId.
+    permissions: ['storage'],
+    // YouTube (página) + LRCLIB (única fuente de letras en Fase 2). Nunca <all_urls>.
+    host_permissions: ['*://www.youtube.com/*', 'https://lrclib.net/*'],
   },
 });
