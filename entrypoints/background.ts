@@ -39,30 +39,44 @@ interface CacheEntry {
 
 async function handleGetLyrics(query: TrackQuery, force = false): Promise<GetLyricsResponse> {
   const key = CACHE_PREFIX + query.videoId;
+  const debug: string[] = [];
+  const t0 = Date.now();
+  debug.push(
+    `query: "${query.title}"${query.artist ? ` — ${query.artist}` : ' (sin artista)'}` +
+      `${query.durationSec ? ` · ${Math.round(query.durationSec)}s` : ''}`,
+  );
 
   if (force) {
     await browser.storage.local.remove(key); // "borrar caché de esta canción"
+    debug.push('caché: borrada (re-buscar)');
   } else {
     const stored = await browser.storage.local.get(key);
     const hit = stored[key] as CacheEntry | undefined;
-    // Solo usamos la caché POSITIVA: un "no encontrado" nunca se cachea ni se reutiliza,
-    // así una mejora de matching surte efecto sin quedar enmascarada.
-    if (hit && hit.doc) return { doc: hit.doc, source: hit.source, cached: true };
+    // Solo usamos la caché POSITIVA: un "no encontrado" nunca se cachea ni se reutiliza.
+    if (hit && hit.doc) {
+      debug.push(`caché: HIT (${hit.source}, ${hit.doc.lines.length} líneas)`);
+      return { doc: hit.doc, source: hit.source, cached: true, debug };
+    }
+    debug.push('caché: miss');
   }
 
   let doc: GetLyricsResponse['doc'] = null;
   let source: string | null = null;
   const providers = await getProviders();
+  debug.push(`cadena: ${providers.map((p) => p.id).join(' → ')}`);
   for (const provider of providers) {
+    const ts = Date.now();
     try {
       const result = await provider.fetch(query);
       if (result) {
+        debug.push(`${provider.id}: ✓ ${result.lines.length} líneas (${Date.now() - ts}ms)`);
         doc = result;
         source = provider.id;
         break;
       }
-    } catch {
-      // Un proveedor que falla no debe tumbar la cadena.
+      debug.push(`${provider.id}: sin resultado (${Date.now() - ts}ms)`);
+    } catch (e) {
+      debug.push(`${provider.id}: error ${e instanceof Error ? e.message : e} (${Date.now() - ts}ms)`);
     }
   }
 
@@ -71,7 +85,8 @@ async function handleGetLyrics(query: TrackQuery, force = false): Promise<GetLyr
     const entry: CacheEntry = { doc, source, ts: Date.now() };
     await browser.storage.local.set({ [key]: entry });
   }
-  return { doc, source, cached: false };
+  debug.push(`total: ${Date.now() - t0}ms → ${source ?? 'SIN LETRA'}`);
+  return { doc, source, cached: false, debug };
 }
 
 // --- Offscreen (tokenizador kuromoji) -------------------------------------

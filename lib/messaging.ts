@@ -23,6 +23,8 @@ export interface GetLyricsResponse {
   cached: boolean;
   /** id del proveedor que respondió, o null si ninguno encontró letra. */
   source: string | null;
+  /** Registro paso a paso de la búsqueda (para el panel de debug del overlay). */
+  debug?: string[];
 }
 
 export interface TokenizeResponse {
