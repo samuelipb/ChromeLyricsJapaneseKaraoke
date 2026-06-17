@@ -7,8 +7,26 @@
 ---
 
 ## 📍 Estado actual
-- **Fase:** 3 — Furigana + toggles furigana/romaji → **COMPLETADA Y VERIFICADA** por el usuario
-  (se ve la furigana sobre los kanji en videos reales). Mergeada a `main` + **tag `fase-3`**.
+- **Fase:** 4 — Cadena multi-fuente + normalización + caché → **CÓDIGO COMPLETO** en rama
+  `feat/fase-4-multisource` (typecheck, 56 tests y build verdes). **Pendiente tu prueba manual**;
+  luego merge + tag `fase-4`.
+- **Mejora de cobertura (Fase 4):** LRCLIB indexa por tokens **latinos**, así que la búsqueda por
+  campos en kanji fallaba (p. ej. `track_name=あの夢をなぞって` → 0). Ahora `searchLrclib` combina
+  **2 búsquedas** (por campos + general `q=<artista> <título>`) y une candidatos únicos; el filtro
+  por duración ±2 s desempata. Caso demo: `sAuEeM_6zpk` (YOASOBI あの夢をなぞって, MV 239 s) antes
+  no devolvía nada y ahora casa con la sincronizada de LRCLIB (241 s). +1 test (57).
+- **Hecho en Fase 4:** cadena de proveedores POR PRIORIDAD en background
+  (`lrclibProvider` sincronizada → `lrclibPlainProvider` texto plano interpolado). Nueva
+  interpolación por mora (`lib/normalizer/interpolate.ts`, tested): reparte la duración entre
+  líneas de texto plano. LRCLIB refactorizado con `searchLrclib` memoizado (no pega 2× por
+  canción), `pickPlain`. El overlay indica "texto plano (aprox.)" cuando la letra es interpolada.
+  +11 tests (56 total). Caché por `videoId` y modelo interno único ya existían (Fase 2).
+- **timedtext de YouTube (prioridad #1 del plan) DESCARTADO en la práctica:** el endpoint
+  ya no responde sin el contexto de la página, y casi ningún MV musical tiene captions (verificado
+  con curl: Lemon de 米津玄師 no tiene `captionTracks`). Implementarlo bien exigiría leer
+  `ytInitialPlayerResponse` desde un content script en MAIN world; bajo retorno para música.
+  Queda como opcional documentado.
+- **Fase 3** COMPLETADA Y VERIFICADA, mergeada a `main` + **tag `fase-3`**.
 - **Arquitectura final del tokenizador (tras 3 obstáculos resueltos):**
   1. El **Worker** desde content script lo bloquea el **CSP de YouTube** (`worker-src`) →
      pivote a **offscreen document** (`entrypoints/offscreen/`), origen de la extensión, sin CSP.
@@ -49,10 +67,10 @@
   `https://lrclib.net/*` y el permiso `storage` para la caché por `videoId`.
   *(Aprobado y ya implementado — ver Estado actual.)*
 
-- **▶️ PRÓXIMA TAREA:** **Fase 4 — cadena multi-fuente** + normalización + caché por videoId.
-- **Diferido a Fase 4 (cadena multi-fuente):** proveedor de subtítulos de YouTube (timedtext,
-  prioridad #1), texto plano interpolado como respaldo, y mejora de detección con el panel
-  "Música" de YouTube (Song/Artist estructurado), más fiable que limpiar el título.
+- **▶️ PRÓXIMA TAREA:** verificar Fase 4; luego **Fase 5 — karaoke por palabra** (Enhanced LRC
+  cuando exista + interpolación por mora DENTRO de la línea; resaltado "wipe").
+- **Diferido / opcional:** proveedor timedtext de YouTube (MAIN world, bajo retorno para música);
+  mejora de detección con el panel "Música" de YouTube (Song/Artist estructurado).
 - **Pedido del usuario (Fase 6):** control para **aumentar/reducir el tamaño de fuente de la
   letra en tiempo real** (+/− en overlay o atajos), persistido en storage. Anotado en `Plan.md`.
 - **Pedido del usuario (Fase 6):** **ajuste de offset de sincronización por canción**
@@ -127,6 +145,16 @@
   Enhanced LRC cacheado. Discutir alcance/legalidad/coste antes de implementar.
 
 ## 📒 Bitácora (log breve por tarea)
+- **[Fase 4+]** NetEase (opt-in): `lib/providers/netease.ts` (POST /api/search/get + /api/song/lyric,
+  match ±2 s, filtra créditos; enabledByDefault=false). Background arma la cadena según ajuste
+  `extraSources`; content tiene botón "NetEase" (re-busca al activar) y botón 🔄 (re-buscar
+  ignorando caché). Caché: solo positivos, clave v2. Búsqueda LRCLIB combinada (campos + q=).
+  +host music.163.com. 64 tests. **Pendiente prueba manual.**
+- **[Fase 4]** Cadena multi-fuente: `lrclibProvider` (synced) → `lrclibPlainProvider` (texto
+  plano interpolado por mora). `lib/normalizer/interpolate.ts` (moraCount + interpolatePlainLines).
+  LRCLIB refactor: `searchLrclib` memoizado + `pickPlain`. Overlay marca "texto plano (aprox.)".
+  timedtext descartado (sin captions en MVs). +11 tests (56). Rama `feat/fase-4-multisource`.
+  → **Detenido para prueba manual antes de merge + tag `fase-4`.**
 - **[Fase 3]** Furigana: lógica pura `furigana.ts` (ruby okurigana-aware + romaji con corrección
   de partículas は/へ; 11 tests). Tokenizador en **offscreen document** (kuromoji fuera del CSP de
   YouTube), background como relé, caché por línea. Diccionario vendorizado `public/dict/` (~17 MB).

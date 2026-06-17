@@ -7,12 +7,28 @@ import type {
   OffscreenTokenizeMessage,
   TokenizeResponse,
 } from '../lib/messaging';
-import { lrclibProvider } from '../lib/providers/lrclib';
+import { lrclibPlainProvider, lrclibProvider } from '../lib/providers/lrclib';
+import { neteaseProvider } from '../lib/providers/netease';
 
-// Cadena de proveedores por prioridad (Fase 2: solo LRCLIB por línea).
-const PROVIDERS: LyricsProvider[] = [lrclibProvider];
+// Cadena de proveedores POR PRIORIDAD. NetEase (opt-in) se intercala entre la
+// sincronizada de LRCLIB y el texto plano, solo si el usuario lo activó en ajustes.
+async function getProviders(): Promise<LyricsProvider[]> {
+  const chain: LyricsProvider[] = [lrclibProvider];
+  let extraSources = false;
+  try {
+    const got = await browser.storage.local.get('settings');
+    extraSources = (got.settings as { extraSources?: boolean } | undefined)?.extraSources === true;
+  } catch {
+    /* usa por defecto */
+  }
+  if (extraSources) chain.push(neteaseProvider);
+  chain.push(lrclibPlainProvider);
+  return chain;
+}
 
-const CACHE_PREFIX = 'lyrics:';
+// v2: invalida cachés viejas (antes se guardaban "no encontrado" que enmascaraban
+// mejoras del matching). Súbelo si cambia el esquema o la lógica de proveedores.
+const CACHE_PREFIX = 'lyrics:v2:';
 const OFFSCREEN_URL = 'offscreen.html';
 
 interface CacheEntry {
@@ -21,17 +37,23 @@ interface CacheEntry {
   ts: number;
 }
 
-async function handleGetLyrics(query: TrackQuery): Promise<GetLyricsResponse> {
+async function handleGetLyrics(query: TrackQuery, force = false): Promise<GetLyricsResponse> {
   const key = CACHE_PREFIX + query.videoId;
 
-  const stored = await browser.storage.local.get(key);
-  const hit = stored[key] as CacheEntry | undefined;
-  if (hit) return { doc: hit.doc, source: hit.source, cached: true };
+  if (force) {
+    await browser.storage.local.remove(key); // "borrar caché de esta canción"
+  } else {
+    const stored = await browser.storage.local.get(key);
+    const hit = stored[key] as CacheEntry | undefined;
+    // Solo usamos la caché POSITIVA: un "no encontrado" nunca se cachea ni se reutiliza,
+    // así una mejora de matching surte efecto sin quedar enmascarada.
+    if (hit && hit.doc) return { doc: hit.doc, source: hit.source, cached: true };
+  }
 
   let doc: GetLyricsResponse['doc'] = null;
   let source: string | null = null;
-  for (const provider of PROVIDERS) {
-    if (!provider.enabledByDefault) continue; // fuentes de riesgo: opt-in
+  const providers = await getProviders();
+  for (const provider of providers) {
     try {
       const result = await provider.fetch(query);
       if (result) {
@@ -44,8 +66,11 @@ async function handleGetLyrics(query: TrackQuery): Promise<GetLyricsResponse> {
     }
   }
 
-  const entry: CacheEntry = { doc, source, ts: Date.now() };
-  await browser.storage.local.set({ [key]: entry });
+  // Solo cacheamos resultados POSITIVOS (no enmascarar mejoras futuras del matching).
+  if (doc) {
+    const entry: CacheEntry = { doc, source, ts: Date.now() };
+    await browser.storage.local.set({ [key]: entry });
+  }
   return { doc, source, cached: false };
 }
 
@@ -111,7 +136,7 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
     (message: ExtMessage): Promise<GetLyricsResponse | TokenizeResponse> | undefined => {
       if (message?.type === 'GET_LYRICS') {
-        return handleGetLyrics(message.query).catch(
+        return handleGetLyrics(message.query, message.force).catch(
           () => ({ doc: null, source: null, cached: false }) satisfies GetLyricsResponse,
         );
       }
