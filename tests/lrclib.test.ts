@@ -105,4 +105,17 @@ describe('lrclibProvider.fetch', () => {
     const doc = await lrclibProvider.fetch({ title: 'a', videoId: 'x' });
     expect(doc).toBeNull();
   });
+
+  it('recupera por q= lo que la búsqueda por campos se pierde (cobertura japonés)', async () => {
+    // La búsqueda por campos (track_name=) devuelve []; solo q= encuentra la canción.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const body = url.includes('q=') ? [cand({ id: 99, duration: 241 })] : [];
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    const doc = await lrclibProvider.fetch({ title: 'あの夢をなぞって', artist: 'Qtest', durationSec: 241, videoId: 'qrec' });
+    expect(doc?.lines).toHaveLength(2);
+  });
 });

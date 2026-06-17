@@ -21,20 +21,24 @@ export interface LrclibCandidate {
   syncedLyrics?: string | null;
 }
 
-function buildSearchUrl(q: TrackQuery): string {
-  const p = new URLSearchParams();
-  p.set('track_name', q.title);
-  if (q.artist) p.set('artist_name', q.artist);
-  return `${BASE}/api/search?${p.toString()}`;
+/**
+ * Dos URLs de búsqueda que se combinan para maximizar la cobertura:
+ * 1) por campos (preciso cuando título/artista están en latino),
+ * 2) general `q=` (más recall; LRCLIB indexa por tokens latinos, así que el artista
+ *    latino —YOASOBI…— recupera el catálogo y luego desempatamos por duración).
+ */
+function buildSearchUrls(q: TrackQuery): string[] {
+  const field = new URLSearchParams();
+  field.set('track_name', q.title);
+  if (q.artist) field.set('artist_name', q.artist);
+
+  const general = new URLSearchParams();
+  general.set('q', [q.artist, q.title].filter(Boolean).join(' '));
+
+  return [`${BASE}/api/search?${field.toString()}`, `${BASE}/api/search?${general.toString()}`];
 }
 
-// Memo compartido entre los dos proveedores para no pegar dos veces a LRCLIB por canción.
-const memo = new Map<string, { ts: number; data: unknown }>();
-
-async function searchLrclib(query: TrackQuery): Promise<unknown> {
-  const url = buildSearchUrl(query);
-  const cached = memo.get(url);
-  if (cached && Date.now() - cached.ts < MEMO_TTL_MS) return cached.data;
+async function fetchJson(url: string): Promise<unknown> {
   let res: Response;
   try {
     res = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -42,14 +46,43 @@ async function searchLrclib(query: TrackQuery): Promise<unknown> {
     return null; // red caída → degradación elegante
   }
   if (!res.ok) return null;
-  let data: unknown;
   try {
-    data = await res.json();
+    return await res.json();
   } catch {
     return null;
   }
-  memo.set(url, { ts: Date.now(), data });
-  return data;
+}
+
+// Memo compartido entre los dos proveedores para no pegar dos veces a LRCLIB por canción.
+const memo = new Map<string, { ts: number; data: LrclibCandidate[] }>();
+
+function candKey(c: LrclibCandidate): string {
+  return c.id != null ? `id:${c.id}` : `${c.artistName}|${c.trackName}|${c.duration}`;
+}
+
+/** Lanza ambas búsquedas y devuelve los candidatos únicos combinados. */
+async function searchLrclib(query: TrackQuery): Promise<LrclibCandidate[]> {
+  const urls = buildSearchUrls(query);
+  const key = urls.join('|');
+  const cached = memo.get(key);
+  if (cached && Date.now() - cached.ts < MEMO_TTL_MS) return cached.data;
+
+  const lists = await Promise.all(urls.map(fetchJson));
+  const merged: LrclibCandidate[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const c of list) {
+      if (!c || typeof c !== 'object') continue;
+      const cand = c as LrclibCandidate;
+      const k = candKey(cand);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      merged.push(cand);
+    }
+  }
+  if (merged.length > 0) memo.set(key, { ts: Date.now(), data: merged });
+  return merged;
 }
 
 function withinDuration(c: LrclibCandidate, durationSec: number): boolean {

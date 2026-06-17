@@ -10,6 +10,11 @@
 - **Fase:** 4 — Cadena multi-fuente + normalización + caché → **CÓDIGO COMPLETO** en rama
   `feat/fase-4-multisource` (typecheck, 56 tests y build verdes). **Pendiente tu prueba manual**;
   luego merge + tag `fase-4`.
+- **Mejora de cobertura (Fase 4):** LRCLIB indexa por tokens **latinos**, así que la búsqueda por
+  campos en kanji fallaba (p. ej. `track_name=あの夢をなぞって` → 0). Ahora `searchLrclib` combina
+  **2 búsquedas** (por campos + general `q=<artista> <título>`) y une candidatos únicos; el filtro
+  por duración ±2 s desempata. Caso demo: `sAuEeM_6zpk` (YOASOBI あの夢をなぞって, MV 239 s) antes
+  no devolvía nada y ahora casa con la sincronizada de LRCLIB (241 s). +1 test (57).
 - **Hecho en Fase 4:** cadena de proveedores POR PRIORIDAD en background
   (`lrclibProvider` sincronizada → `lrclibPlainProvider` texto plano interpolado). Nueva
   interpolación por mora (`lib/normalizer/interpolate.ts`, tested): reparte la duración entre
