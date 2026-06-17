@@ -13,7 +13,8 @@ const BASE = 'https://lrclib.net';
 // El filtro de relevancia (artista/título) ya evita canciones equivocadas.
 const DURATION_TOLERANCE_S = 10;
 const MEMO_TTL_MS = 60_000;
-const TIMEOUT_MS = 5000;
+// lrclib.net puede ir lento (a veces ~10 s); timeout generoso para no abortar antes.
+const TIMEOUT_MS = 15_000;
 
 /** Forma (parcial, no confiable) de un resultado de /api/search. */
 export interface LrclibCandidate {
@@ -47,13 +48,17 @@ function toCandidates(data: unknown): LrclibCandidate[] {
   return Array.isArray(data) ? (data.filter((c) => c && typeof c === 'object') as LrclibCandidate[]) : [];
 }
 
+function candKey(c: LrclibCandidate): string {
+  return c.id != null ? `id:${c.id}` : `${c.artistName}|${c.trackName}|${c.duration}`;
+}
+
 // Memo compartido entre los dos proveedores para no pegar dos veces a LRCLIB por canción.
 const memo = new Map<string, { ts: number; data: LrclibCandidate[] }>();
 
 /**
- * Busca en 2 PASOS para minimizar peticiones (latencia/rate-limiting):
- * 1) por campos (preciso); si no devuelve nada,
- * 2) general `q=` (recall para japonés/romaji). El filtro por duración desempata.
+ * Busca por campos y por `q=` EN PARALELO y une los candidatos únicos. Paralelo (no
+ * secuencial) para no sumar latencias cuando lrclib va lento. El filtro de relevancia
+ * (artista/título) + duración desempatan después.
  */
 async function searchLrclib(query: TrackQuery): Promise<LrclibCandidate[]> {
   const [fieldUrl, queryUrl] = buildSearchUrls(query);
@@ -62,12 +67,21 @@ async function searchLrclib(query: TrackQuery): Promise<LrclibCandidate[]> {
   if (cached && Date.now() - cached.ts < MEMO_TTL_MS) return cached.data;
 
   const headers = { Accept: 'application/json' };
-  let list = toCandidates(await fetchJson(fieldUrl!, { headers }, TIMEOUT_MS));
-  if (list.length === 0) {
-    list = toCandidates(await fetchJson(queryUrl!, { headers }, TIMEOUT_MS));
+  const [fieldData, queryData] = await Promise.all([
+    fetchJson(fieldUrl!, { headers }, TIMEOUT_MS),
+    fetchJson(queryUrl!, { headers }, TIMEOUT_MS),
+  ]);
+
+  const merged: LrclibCandidate[] = [];
+  const seen = new Set<string>();
+  for (const c of [...toCandidates(fieldData), ...toCandidates(queryData)]) {
+    const k = candKey(c);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(c);
   }
-  if (list.length > 0) memo.set(key, { ts: Date.now(), data: list });
-  return list;
+  if (merged.length > 0) memo.set(key, { ts: Date.now(), data: merged });
+  return merged;
 }
 
 function pickBy(

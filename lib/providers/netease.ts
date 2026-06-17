@@ -9,7 +9,7 @@ import { fetchJson } from './http';
 const BASE = 'https://music.163.com';
 // Duración APROXIMADA (no exacta); el filtro de relevancia evita canciones equivocadas.
 const DURATION_TOLERANCE_S = 10;
-const TIMEOUT_MS = 6000; // NetEase (China) puede ser lento desde fuera
+const TIMEOUT_MS = 12_000; // NetEase (China) puede ser lento desde fuera
 
 interface NeteaseSong {
   id: number;
