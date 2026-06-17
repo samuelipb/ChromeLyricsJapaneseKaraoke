@@ -7,8 +7,10 @@
 ---
 
 ## 📍 Estado actual
-- **Fase:** 1 — Esqueleto MV3 con WXT + overlay "hola mundo" → **CÓDIGO COMPLETO**
-  (typecheck y build verdes; **pendiente tu prueba manual** cargando la extensión descomprimida).
+- **Fase:** 1 — Esqueleto MV3 con WXT + overlay "hola mundo" → **COMPLETADA Y VERIFICADA**
+  (el usuario cargó la extensión y confirmó que el overlay aparece y reacciona a play/pausa en
+  un `/watch`). **Tag `fase-1` creado.** Nota: el content script ahora se inyecta en todo
+  `*://www.youtube.com/*` para sobrevivir a la navegación SPA (fix `d00bdc3`).
 - **Última tarea hecha:** scaffold WXT (`wxt.config.ts`, `tsconfig.json`), `entrypoints/background.ts`
   (SW que loguea al arrancar) y `entrypoints/content.ts` (overlay visible en `/watch`, reinicio en
   navegación SPA `yt-navigate-finish`, detecta `video.html5-main-video`, limpia listeners). WXT 0.20.26
