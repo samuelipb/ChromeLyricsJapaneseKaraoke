@@ -7,18 +7,26 @@
 ---
 
 ## 📍 Estado actual
-- **Fase:** 0 — Andamiaje agéntico → **COMPLETADA** (pendiente tu revisión).
-- **Última tarea hecha:** montar repo Git + `CLAUDE.md` + `PROGRESS.md` + árbol `.claude/`
-  completo (rules, agents, skills, commands, hooks, settings.json), adaptado a Windows 11.
-- **▶️ PRÓXIMA TAREA:** **Fase 1 — Esqueleto MV3 con WXT + overlay "hola mundo"** inyectado en
-  una página `youtube.com/watch`. *(Requiere tu OK; instala WXT y dependencias → preguntar antes.)*
+- **Fase:** 1 — Esqueleto MV3 con WXT + overlay "hola mundo" → **CÓDIGO COMPLETO**
+  (typecheck y build verdes; **pendiente tu prueba manual** cargando la extensión descomprimida).
+- **Última tarea hecha:** scaffold WXT (`wxt.config.ts`, `tsconfig.json`), `entrypoints/background.ts`
+  (SW que loguea al arrancar) y `entrypoints/content.ts` (overlay visible en `/watch`, reinicio en
+  navegación SPA `yt-navigate-finish`, detecta `video.html5-main-video`, limpia listeners). WXT 0.20.26
+  y TypeScript 6.0.3 instalados con **pin exacto**. `npm run build` genera `.output/chrome-mv3`
+  (manifest mínimo: solo `*://www.youtube.com/*`, content script solo en `/watch`).
+- **▶️ PRÓXIMA TAREA:** **Fase 2 — Detección y limpieza de pista + LRCLIB + letra sincronizada por
+  línea.** Antes: que el usuario cargue la extensión y confirme que ve el overlay en un `/watch`.
+  Para la Fase 2 habrá que **pedir permiso** para añadir `host_permissions`/`connect-src` de
+  `https://lrclib.net/*` y el permiso `storage` para la caché por `videoId`.
 
-## 🧭 Cómo arrancar la Fase 1 (cuando se apruebe)
-1. `npm create wxt@latest` (o init en el dir actual) — confirmar plantilla TS.
-2. Definir `manifest` mínimo: `host_permissions` solo `*://www.youtube.com/*`; sin `<all_urls>`.
-3. Content script en `/watch` que inyecta un overlay visible (sin lógica de letras todavía).
-4. Manejar navegación SPA (`yt-navigate-finish`) y `document.querySelector('video.html5-main-video')`.
-5. Cargar descomprimida desde `.output/chrome-mv3` en `chrome://extensions`. Probar y commitear.
+## 🧭 Cómo probar la Fase 1 (manual, lo hace el usuario)
+1. `npm run build` (ya corrido) → genera `.output/chrome-mv3`.
+2. En Chrome: `chrome://extensions` → activar **Modo desarrollador** → **Cargar descomprimida**
+   → seleccionar la carpeta `.output/chrome-mv3`.
+3. Abrir cualquier `https://www.youtube.com/watch?v=...` → debe verse el overlay
+   "🎤 Letras JP — overlay activo (Fase 1)" abajo-centro; cambia a ▶️/⏸️ al reproducir/pausar.
+4. Navegar a otro video sin recargar (SPA) → el overlay se reinicia solo.
+5. Alternativa con HMR: `npm run dev` (carga y recarga en caliente).
 
 ---
 
@@ -48,24 +56,35 @@
 | `.claude/commands/*` (8) | ✅ creado | Slash commands. |
 | `.claude/hooks/*` (4) | ✅ creado | Node, defensivos (no-op si no hay tooling). |
 | `.claude/settings.json` | ✅ creado | Registra los hooks. |
-| `src/` / `entrypoints/` | ⏳ Fase 1 | Código de la extensión (aún no existe). |
+| `package.json` | ✅ creado | Scripts WXT + devDeps `wxt 0.20.26`, `typescript 6.0.3` (pin). |
+| `wxt.config.ts` | ✅ creado | Manifest mínimo: `host_permissions` solo YouTube. |
+| `tsconfig.json` | ✅ creado | Extiende `.wxt/tsconfig.json`; `strict` + reglas extra. |
+| `entrypoints/background.ts` | ✅ creado | SW efímero; solo loguea al arrancar (Fase 1). |
+| `entrypoints/content.ts` | ✅ creado | Overlay en `/watch`, SPA-aware, limpia listeners. |
+| `.wxt/`, `.output/` | 🛠️ generados | Ignorados por git (build/types). |
 
 ## ▶️ Cómo correr y probar AHORA MISMO
-- **Fase 0 no produce build ejecutable** (es solo andamiaje). Verificación disponible:
-  - `git log --oneline` → commit inicial; `git tag` → `fase-0`.
-  - `node .claude/hooks/guard.mjs` con JSON por stdin → bloquea `.env`/código remoto.
-  - `node .claude/hooks/session-start.mjs` → imprime este PROGRESS.
-- El `npm run dev/test/...` empieza a funcionar **desde la Fase 1** (cuando exista `package.json`).
+- `npm run build` → `.output/chrome-mv3` (cargar descomprimida en `chrome://extensions`).
+- `npm run dev` → build + HMR. `npm run typecheck` → `tsc --noEmit` (verde).
+- Si `.wxt/` falta tras un `npm install`, regenéralo con `npx wxt prepare` (el `postinstall`
+  puede no correr en el primer install). `git log --oneline` / `git tag` para el estado de fases.
 
 ## 🚧 Bloqueos / dudas abiertas / TODOs
 - **`gh` no instalado** → repo **solo local**. TODO: cuando haya `gh` + credenciales, crear remoto
   en GitHub y `git push -u`. No bloquea el avance (Plan.md §2.7).
 - **Identidad git** puesta local como `Samuel <xamurtx@gmail.com>` — cámbiala si prefieres otra.
-- **Pendiente de aprobación:** arrancar Fase 1 (instala WXT + deps → preguntar antes, Plan.md §12).
+- **npm audit:** 8 vulnerabilidades, **todas en devDeps transitivas de WXT** (esbuild dev-server,
+  web-ext-run, fx-runner de Firefox, node-notifier). **No** entran en el bundle de la extensión
+  (`.output/` = `background.js` + `content.js` + `manifest.json`). `npm audit fix --force` subiría
+  WXT de major y rompería; se deja como está. Revisar al actualizar WXT.
 - Las fuentes de letras "de riesgo" (word-timing/scraping) van **opt-in**; decidir cuáles activar
   más adelante (Fase 4/5).
 
 ## 📒 Bitácora (log breve por tarea)
+- **[Fase 1]** Esqueleto MV3 con WXT: `wxt.config.ts` (manifest mínimo YouTube), `tsconfig.json`
+  estricto, `background.ts` (SW) y `content.ts` (overlay en `/watch`, SPA-aware, cleanup).
+  WXT 0.20.26 + TS 6.0.3 (pin exacto). typecheck + build verdes; `.output/chrome-mv3` generado.
+  → **Detenido para prueba manual del usuario antes de la Fase 2.**
 - **[Fase 0]** Andamiaje agéntico completo: Git init (`main`), `.gitignore`, `CLAUDE.md`,
   `PROGRESS.md`, 7 rules + 8 agents + 5 skills + 8 commands + 4 hooks + `settings.json`.
   Commit inicial + tag `fase-0`. → **Detenido para revisión humana antes de Fase 1.**

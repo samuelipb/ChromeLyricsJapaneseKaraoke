@@ -1,0 +1,13 @@
+{
+  // WXT genera la config base en .wxt/tsconfig.json (paths, tipos de chrome, etc.).
+  // Aquí solo extendemos y endurecemos. Ver .claude/rules (TypeScript estricto, sin any).
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true
+  }
+}
