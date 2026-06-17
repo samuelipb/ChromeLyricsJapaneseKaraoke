@@ -7,10 +7,23 @@
 ---
 
 ## 📍 Estado actual
-- **Fase:** 1 — Esqueleto MV3 con WXT + overlay "hola mundo" → **COMPLETADA Y VERIFICADA**
-  (el usuario cargó la extensión y confirmó que el overlay aparece y reacciona a play/pausa en
-  un `/watch`). **Tag `fase-1` creado.** Nota: el content script ahora se inyecta en todo
-  `*://www.youtube.com/*` para sobrevivir a la navegación SPA (fix `d00bdc3`).
+- **Fase:** 2 — Detección de pista + LRCLIB + letra sincronizada por línea →
+  **COMPLETADA Y VERIFICADA** por el usuario (funciona en videos mainstream tipo YOASOBI/Yonezu).
+  Mergeada a `main` + **tag `fase-2`**. Decisión: se cierra **solo con LRCLIB**; el proveedor de
+  subtítulos de YouTube (timedtext, prioridad #1 del plan) se difiere a la **Fase 4**.
+- **Aprendizaje de cobertura:** el video de あいみょん `IL35V9wYr-U` no mostró letra porque
+  (a) LRCLIB no tiene NADA de あいみょん/Aimyon, y (b) ese lyric video no tiene captions de YouTube.
+  No fue bug: la detección parseó bien (`あいみょん` / `貴方解剖純愛歌 〜死ね〜`) y la extensión degradó
+  con elegancia ("sin letra"). Más fuentes = Fase 4.
+- **Hecho en Fase 2:** modelo interno (`lib/model.ts`), parser LRC (`lib/providers/lrc.ts`),
+  proveedor LRCLIB con matching por duración ±2 s (`lib/providers/lrclib.ts`), limpieza de
+  título/artista con heurística japonesa `『』` (`lib/normalizer/title.ts`), mensajería tipada
+  (`lib/messaging.ts`), background que orquesta y cachea por `videoId` en `storage.local`, y
+  content script que detecta la pista desde el DOM y muestra prev/actual/siguiente sincronizado
+  por línea (bucle rAF + búsqueda binaria; pausa/seek manejados). Vitest añadido (pin `4.1.9`).
+  Manifest: `+storage`, `+https://lrclib.net/*`.
+- **Fase 1** quedó COMPLETADA Y VERIFICADA (tag `fase-1`); content script inyecta en todo
+  `*://www.youtube.com/*` para sobrevivir a la SPA.
 - **Última tarea hecha:** scaffold WXT (`wxt.config.ts`, `tsconfig.json`), `entrypoints/background.ts`
   (SW que loguea al arrancar) y `entrypoints/content.ts` (overlay visible en `/watch`, reinicio en
   navegación SPA `yt-navigate-finish`, detecta `video.html5-main-video`, limpia listeners). WXT 0.20.26
@@ -20,6 +33,13 @@
   línea.** Antes: que el usuario cargue la extensión y confirme que ve el overlay en un `/watch`.
   Para la Fase 2 habrá que **pedir permiso** para añadir `host_permissions`/`connect-src` de
   `https://lrclib.net/*` y el permiso `storage` para la caché por `videoId`.
+  *(Aprobado y ya implementado — ver Estado actual.)*
+
+- **▶️ PRÓXIMA TAREA:** **Fase 3 — Furigana con kuromoji/kuroshiro** (`<ruby>` por nodos,
+  toggle furigana/romaji, tokenizador en worker/offscreen con diccionario vendorizado).
+- **Diferido a Fase 4 (cadena multi-fuente):** proveedor de subtítulos de YouTube (timedtext,
+  prioridad #1), texto plano interpolado como respaldo, y mejora de detección con el panel
+  "Música" de YouTube (Song/Artist estructurado), más fiable que limpiar el título.
 
 ## 🧭 Cómo probar la Fase 1 (manual, lo hace el usuario)
 1. `npm run build` (ya corrido) → genera `.output/chrome-mv3`.
@@ -83,6 +103,12 @@
   más adelante (Fase 4/5).
 
 ## 📒 Bitácora (log breve por tarea)
+- **[Fase 2]** Detección de pista + LRCLIB + letra por línea. `lib/`: model, lrc parser,
+  lrclib provider (matching ±2 s), title normalizer (heurística `『』`), messaging. Background
+  orquesta + cachea por videoId (storage.local). Content script: detect desde DOM + render
+  prev/actual/siguiente con rAF y búsqueda binaria; pausa/seek/ended manejados. 34 tests
+  (Vitest, red mockeada). Manifest: +storage, +lrclib.net. Rama `feat/fase-2-lrclib`.
+  → **Detenido para prueba manual del usuario antes de merge + tag `fase-2`.**
 - **[Fase 1]** Esqueleto MV3 con WXT: `wxt.config.ts` (manifest mínimo YouTube), `tsconfig.json`
   estricto, `background.ts` (SW) y `content.ts` (overlay en `/watch`, SPA-aware, cleanup).
   WXT 0.20.26 + TS 6.0.3 (pin exacto). typecheck + build verdes; `.output/chrome-mv3` generado.
