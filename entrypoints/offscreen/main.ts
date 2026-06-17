@@ -1,33 +1,37 @@
 // Offscreen document: corre kuromoji en el origen de la extensión (chrome-extension://),
-// fuera del CSP de YouTube. Construye el tokenizador de forma perezosa y responde a los
-// mensajes {target:'offscreen', type:'TOKENIZE'} que le reenvía el background.
+// fuera del CSP de YouTube. REGISTRA el listener de inmediato y carga kuromoji de forma
+// PEREZOSA (import dinámico) para que, si kuromoji fallara, el error se reporte en vez de
+// dejar el documento mudo. Responde a {target:'offscreen', type:'TOKENIZE'}.
 import { browser } from 'wxt/browser';
-import kuromoji, { type Tokenizer } from 'kuromoji';
 import { toHiragana } from 'wanakana';
+import type { Tokenizer as KuromojiTokenizer } from 'kuromoji';
 import type { KToken } from '../../lib/tokenizer/furigana';
 import type { OffscreenTokenizeMessage, TokenizeResponse } from '../../lib/messaging';
 
-let tokenizerPromise: Promise<Tokenizer> | null = null;
+let tokenizerPromise: Promise<KuromojiTokenizer> | null = null;
 
-function getTokenizer(): Promise<Tokenizer> {
-  if (!tokenizerPromise) {
-    // getURL está tipado con rutas conocidas de public/; cargamos por DIRECTORIO.
-    const getURL = browser.runtime.getURL as (path: string) => string;
-    const dicPath = getURL('dict/');
-    console.log('[letras-jp] offscreen: cargando diccionario kuromoji desde', dicPath);
-    tokenizerPromise = new Promise<Tokenizer>((resolve, reject) => {
-      kuromoji.builder({ dicPath }).build((err, tokenizer) => {
-        if (err) reject(err);
-        else {
-          console.log('[letras-jp] offscreen: diccionario listo');
-          resolve(tokenizer);
-        }
-      });
+async function buildTokenizer(): Promise<KuromojiTokenizer> {
+  const { default: kuromoji } = await import('kuromoji');
+  const getURL = browser.runtime.getURL as (path: string) => string;
+  const dicPath = getURL('dict/');
+  console.log('[letras-jp] offscreen: cargando diccionario kuromoji desde', dicPath);
+  return new Promise<KuromojiTokenizer>((resolve, reject) => {
+    kuromoji.builder({ dicPath }).build((err, tokenizer) => {
+      if (err) reject(err);
+      else {
+        console.log('[letras-jp] offscreen: diccionario listo');
+        resolve(tokenizer);
+      }
     });
-  }
+  });
+}
+
+function getTokenizer(): Promise<KuromojiTokenizer> {
+  if (!tokenizerPromise) tokenizerPromise = buildTokenizer();
   return tokenizerPromise;
 }
 
+console.log('[letras-jp] offscreen: listener registrado');
 browser.runtime.onMessage.addListener((message): Promise<TokenizeResponse> | undefined => {
   const msg = message as Partial<OffscreenTokenizeMessage>;
   if (msg?.target !== 'offscreen' || msg.type !== 'TOKENIZE' || typeof msg.text !== 'string') {

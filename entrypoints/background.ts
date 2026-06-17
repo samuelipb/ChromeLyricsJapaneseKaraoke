@@ -56,20 +56,25 @@ const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function ensureOffscreen(): Promise<void> {
   if (await chrome.offscreen.hasDocument()) return;
-  if (creatingOffscreen) return creatingOffscreen;
-  console.log('[letras-jp] background: creando offscreen document');
-  creatingOffscreen = chrome.offscreen
-    .createDocument({
-      url: OFFSCREEN_URL,
-      reasons: ['DOM_PARSER'],
-      justification: 'Análisis morfológico japonés (kuromoji) para generar furigana.',
-    })
-    .catch(() => {
-      // Si ya existía por una carrera, no es error.
-    })
-    .finally(() => {
-      creatingOffscreen = null;
-    });
+  if (!creatingOffscreen) {
+    console.log('[letras-jp] background: creando offscreen document');
+    creatingOffscreen = chrome.offscreen
+      .createDocument({
+        url: OFFSCREEN_URL,
+        reasons: ['DOM_PARSER'],
+        justification: 'Análisis morfológico japonés (kuromoji) para generar furigana.',
+      })
+      .then(() => console.log('[letras-jp] background: offscreen creado'))
+      .catch((e: unknown) => {
+        const m = e instanceof Error ? e.message : String(e);
+        if (/single offscreen document/i.test(m)) return; // ya existía (carrera): OK
+        console.error('[letras-jp] background: createDocument falló:', m);
+        throw new Error('createDocument: ' + m); // NO tragar: el content lo verá
+      })
+      .finally(() => {
+        creatingOffscreen = null;
+      });
+  }
   return creatingOffscreen;
 }
 
