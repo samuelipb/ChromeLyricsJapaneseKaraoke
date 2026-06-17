@@ -165,14 +165,8 @@ async function handleTokenize(text: string): Promise<TokenizeResponse> {
 export default defineBackground(() => {
   console.log('[letras-jp] service worker listo');
 
-  // Refleja el estado en la insignia al arrancar y al cambiar.
-  void isEnabled().then(reflectBadge);
-  browser.action.onClicked.addListener(async () => {
-    const next = !(await isEnabled());
-    await browser.storage.local.set({ [ENABLED_KEY]: next });
-    await reflectBadge(next);
-  });
-
+  // IMPORTANTE: registrar el listener de mensajes PRIMERO, para que la búsqueda de
+  // letra funcione aunque algo del icono/insignia falle.
   browser.runtime.onMessage.addListener(
     (message: ExtMessage): Promise<GetLyricsResponse | TokenizeResponse> | undefined => {
       if (message?.type === 'GET_LYRICS') {
@@ -186,4 +180,16 @@ export default defineBackground(() => {
       return undefined;
     },
   );
+
+  // Encendido/apagado por el icono. Defensivo: si la API no está, no rompe lo demás.
+  try {
+    void isEnabled().then(reflectBadge);
+    browser.action?.onClicked.addListener(async () => {
+      const next = !(await isEnabled());
+      await browser.storage.local.set({ [ENABLED_KEY]: next });
+      await reflectBadge(next);
+    });
+  } catch (e) {
+    console.error('[letras-jp] no se pudo configurar el icono:', e);
+  }
 });
