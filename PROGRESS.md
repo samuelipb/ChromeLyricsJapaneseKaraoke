@@ -7,6 +7,16 @@
 ---
 
 ## 📍 Estado actual
+- **Fase:** 5 — Karaoke "wipe" → **CÓDIGO COMPLETO (v1)** en rama `feat/fase-5-karaoke`
+  (typecheck, 67 tests y build verdes). **Pendiente tu prueba manual.**
+- **Hecho en Fase 5 (v1):** resaltado "wipe" que barre la línea activa de izquierda a derecha
+  sincronizado con `currentTime`. `lib/sync/wipe.ts` (`wipeProgress`, clamp 0..1, tested).
+  En content: la línea actual usa `background-clip:text` + gradiente lineal cuyo punto de corte
+  se actualiza cada frame en el bucle rAF (y al hacer seek). `curEl` con `width:fit-content` para
+  que el gradiente coincida con el ancho del texto. Compatible con furigana (ruby se barre igual).
+  **v1 = wipe por LÍNEA (progreso lineal)**; el wipe por palabra (mora) queda como refinamiento.
+
+
 - **Fase:** 4 — Cadena multi-fuente + normalización + caché → **CÓDIGO COMPLETO** en rama
   `feat/fase-4-multisource` (typecheck, 56 tests y build verdes). **Pendiente tu prueba manual**;
   luego merge + tag `fase-4`.

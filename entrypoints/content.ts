@@ -9,6 +9,7 @@ import type { TrackQuery } from '../lib/model';
 import { parseTrack } from '../lib/normalizer/title';
 import { Tokenizer } from '../lib/tokenizer/client';
 import { tokensToRomaji, tokensToRuby, type RubySegment } from '../lib/tokenizer/furigana';
+import { wipeProgress } from '../lib/sync/wipe';
 
 const OVERLAY_ID = 'letras-jp-overlay';
 const SETTINGS_KEY = 'settings';
@@ -119,7 +120,15 @@ export default defineContentScript({
       romajiEl = document.createElement('div');
       nextEl = document.createElement('div');
       Object.assign(prevEl.style, { fontSize: '15px', opacity: '0.45' });
-      Object.assign(curEl.style, { fontSize: '24px', fontWeight: '700', margin: '2px 0' });
+      // width:fit-content + margin auto → la caja se ajusta al texto y queda centrada,
+      // así el gradiente del "wipe" (0–100%) coincide con el ancho real del texto.
+      Object.assign(curEl.style, {
+        fontSize: '24px',
+        fontWeight: '700',
+        margin: '2px auto',
+        width: 'fit-content',
+        maxWidth: '100%',
+      });
       Object.assign(romajiEl.style, { fontSize: '13px', opacity: '0.8', display: 'none' });
       Object.assign(nextEl.style, { fontSize: '15px', opacity: '0.45' });
 
@@ -187,15 +196,44 @@ export default defineContentScript({
       romajiEl.style.display = text ? '' : 'none';
     }
 
+    // --- Resaltado "wipe" (karaoke) -----------------------------------------
+    const WIPE_BRIGHT = '#ffffff';
+    const WIPE_DIM = 'rgba(255,255,255,0.4)';
+
+    function applyWipeBase(): void {
+      if (!curEl) return;
+      // El texto se pinta con el gradiente de fondo recortado a las letras.
+      curEl.style.color = 'transparent';
+      curEl.style.backgroundClip = 'text';
+      curEl.style.setProperty('-webkit-text-fill-color', 'transparent');
+      curEl.style.setProperty('-webkit-background-clip', 'text');
+    }
+
+    function clearWipe(): void {
+      if (!curEl) return;
+      curEl.style.color = WIPE_BRIGHT;
+      curEl.style.backgroundImage = 'none';
+      curEl.style.removeProperty('-webkit-text-fill-color');
+    }
+
+    function updateWipe(t: number): void {
+      if (!curEl || !activeLine) return;
+      const p = (wipeProgress(t, activeLine.tStart, activeLine.tEnd) * 100).toFixed(2);
+      curEl.style.backgroundImage = `linear-gradient(90deg, ${WIPE_BRIGHT} ${p}%, ${WIPE_DIM} ${p}%)`;
+    }
+
     function renderCurrent(line: Line | null): void {
       if (!curEl) return;
       const text = line ? lineText(line) : '';
       currentText = text;
       if (!text) {
         curEl.textContent = '';
+        clearWipe();
         showRomaji('');
         return;
       }
+      applyWipeBase();
+      if (video) updateWipe(video.currentTime); // pinta el gradiente ya (evita texto invisible)
       if (!settings.furigana && !settings.romaji) {
         curEl.textContent = text;
         showRomaji('');
@@ -254,7 +292,11 @@ export default defineContentScript({
     }
 
     function loop(): void {
-      if (video) renderAt(video.currentTime);
+      if (video) {
+        const t = video.currentTime;
+        renderAt(t); // cambia de línea solo cuando toca
+        updateWipe(t); // barre la línea activa cada frame
+      }
       rafId = requestAnimationFrame(loop);
     }
 
@@ -329,7 +371,12 @@ export default defineContentScript({
       add('play', () => doc && startLoop());
       add('pause', stopLoop);
       add('ended', stopLoop);
-      add('seeked', () => video && renderAt(video.currentTime));
+      add('seeked', () => {
+        if (video) {
+          renderAt(video.currentTime);
+          updateWipe(video.currentTime);
+        }
+      });
       add('loadedmetadata', () => kickoff());
     }
 
