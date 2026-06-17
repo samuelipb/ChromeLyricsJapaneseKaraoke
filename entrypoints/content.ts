@@ -21,6 +21,8 @@ interface Settings {
   extraSources: boolean;
   /** Muestra el panel de debug en el overlay. */
   debug: boolean;
+  /** Escala del tamaño de la letra (1 = base). */
+  fontScale: number;
 }
 
 export default defineContentScript({
@@ -32,9 +34,11 @@ export default defineContentScript({
 
     // Tokenizador: vive toda la sesión del content script (no recarga el diccionario por video).
     let tokenizer: Tokenizer | null = null;
-    const settings: Settings = { furigana: true, romaji: false, extraSources: false, debug: false };
+    const settings: Settings = { furigana: true, romaji: false, extraSources: false, debug: false, fontScale: 1 };
     const debugLines: string[] = [];
     let enabled = true; // encendido/apagado global (icono de la extensión)
+    let offset = 0; // desfase de sincronización por canción (segundos)
+    let currentVideoId = '';
 
     // Estado vivo por video (se descarta en cada reinicialización SPA).
     let overlay: HTMLElement | null = null;
@@ -49,6 +53,11 @@ export default defineContentScript({
     let reloadBtn: HTMLButtonElement | null = null;
     let debugBtn: HTMLButtonElement | null = null;
     let debugEl: HTMLElement | null = null;
+    let fontDownBtn: HTMLButtonElement | null = null;
+    let fontUpBtn: HTMLButtonElement | null = null;
+    let offDownBtn: HTMLButtonElement | null = null;
+    let offUpBtn: HTMLButtonElement | null = null;
+    let offsetEl: HTMLElement | null = null;
     let video: HTMLVideoElement | null = null;
     const videoListeners: Array<[keyof HTMLMediaElementEventMap, EventListener]> = [];
 
@@ -120,12 +129,30 @@ export default defineContentScript({
       reloadBtn.title = 'Re-buscar letra (ignora la caché de este video)';
       debugBtn = makeBtn('🐞', settings.debug);
       debugBtn.title = 'Panel de debug: muestra qué detecta y cómo busca la letra';
+      fontDownBtn = makeBtn('A−', false);
+      fontDownBtn.title = 'Letra más pequeña';
+      fontUpBtn = makeBtn('A+', false);
+      fontUpBtn.title = 'Letra más grande';
+      offDownBtn = makeBtn('⏪', false);
+      offDownBtn.title = 'Atrasar la letra (−0,2 s)';
+      offUpBtn = makeBtn('⏩', false);
+      offUpBtn.title = 'Adelantar la letra (+0,2 s)';
+      offsetEl = document.createElement('span');
+      Object.assign(offsetEl.style, { fontSize: '11px', opacity: '0.8', margin: '0 2px', minWidth: '34px', textAlign: 'center' });
+
       furiBtn.addEventListener('click', () => toggle('furigana'));
       romaBtn.addEventListener('click', () => toggle('romaji'));
       neteaseBtn.addEventListener('click', () => toggleExtraSources());
       reloadBtn.addEventListener('click', () => kickoff(true));
       debugBtn.addEventListener('click', () => toggleDebug());
-      bar.append(statusEl, furiBtn, romaBtn, neteaseBtn, reloadBtn, debugBtn);
+      fontDownBtn.addEventListener('click', () => changeFont(-0.1));
+      fontUpBtn.addEventListener('click', () => changeFont(+0.1));
+      offDownBtn.addEventListener('click', () => changeOffset(-0.2));
+      offUpBtn.addEventListener('click', () => changeOffset(+0.2));
+      bar.append(
+        statusEl, furiBtn, romaBtn, neteaseBtn, reloadBtn, debugBtn,
+        fontDownBtn, fontUpBtn, offDownBtn, offsetEl, offUpBtn,
+      );
 
       prevEl = document.createElement('div');
       curEl = document.createElement('div');
@@ -161,7 +188,57 @@ export default defineContentScript({
       el.append(bar, prevEl, curEl, romajiEl, nextEl, debugEl);
       document.body.appendChild(el);
       overlay = el;
+      applyFontScale();
+      updateOffsetDisplay();
       renderDebug();
+    }
+
+    // --- Tamaño de fuente y desfase (offset) --------------------------------
+    function applyFontScale(): void {
+      const s = settings.fontScale;
+      if (prevEl) prevEl.style.fontSize = `${15 * s}px`;
+      if (curEl) curEl.style.fontSize = `${24 * s}px`;
+      if (romajiEl) romajiEl.style.fontSize = `${13 * s}px`;
+      if (nextEl) nextEl.style.fontSize = `${15 * s}px`;
+    }
+
+    function changeFont(delta: number): void {
+      settings.fontScale = Math.min(2.5, Math.max(0.6, Math.round((settings.fontScale + delta) * 10) / 10));
+      applyFontScale();
+      void browser.storage.local.set({ [SETTINGS_KEY]: settings });
+    }
+
+    function updateOffsetDisplay(): void {
+      if (offsetEl) offsetEl.textContent = `${offset >= 0 ? '+' : ''}${offset.toFixed(1)}s`;
+    }
+
+    /** Tiempo efectivo del video con el desfase aplicado. */
+    function nowT(): number {
+      return video ? video.currentTime + offset : 0;
+    }
+
+    function changeOffset(delta: number): void {
+      offset = Math.round((offset + delta) * 10) / 10;
+      updateOffsetDisplay();
+      if (currentVideoId) void browser.storage.local.set({ [`offset:${currentVideoId}`]: offset });
+      // Repinta de inmediato con el nuevo desfase.
+      lastIndex = -2;
+      if (video) {
+        renderAt(nowT());
+        updateWipe(nowT());
+      }
+    }
+
+    async function loadOffset(videoId: string): Promise<void> {
+      offset = 0;
+      try {
+        const key = `offset:${videoId}`;
+        const got = await browser.storage.local.get(key);
+        if (typeof got[key] === 'number') offset = got[key] as number;
+      } catch {
+        /* sin desfase guardado */
+      }
+      updateOffsetDisplay();
     }
 
     function setStatus(text: string): void {
@@ -219,6 +296,7 @@ export default defineContentScript({
           if (typeof s.romaji === 'boolean') settings.romaji = s.romaji;
           if (typeof s.extraSources === 'boolean') settings.extraSources = s.extraSources;
           if (typeof s.debug === 'boolean') settings.debug = s.debug;
+          if (typeof s.fontScale === 'number' && s.fontScale > 0) settings.fontScale = s.fontScale;
         }
       } catch {
         /* usa los valores por defecto */
@@ -285,7 +363,7 @@ export default defineContentScript({
         return;
       }
       applyWipeBase();
-      if (video) updateWipe(video.currentTime); // pinta el gradiente ya (evita texto invisible)
+      if (video) updateWipe(nowT()); // pinta el gradiente ya (evita texto invisible)
       if (!settings.furigana && !settings.romaji) {
         curEl.textContent = text;
         showRomaji('');
@@ -345,7 +423,7 @@ export default defineContentScript({
 
     function loop(): void {
       if (video) {
-        const t = video.currentTime;
+        const t = nowT(); // tiempo del video + desfase manual
         renderAt(t); // cambia de línea solo cuando toca
         updateWipe(t); // barre la línea activa cada frame
       }
@@ -436,8 +514,8 @@ export default defineContentScript({
       add('ended', stopLoop);
       add('seeked', () => {
         if (video) {
-          renderAt(video.currentTime);
-          updateWipe(video.currentTime);
+          renderAt(nowT());
+          updateWipe(nowT());
         }
       });
       add('loadedmetadata', () => kickoff());
@@ -458,6 +536,8 @@ export default defineContentScript({
         dbg('esperando metadatos del video (sin videoId/título/duración aún)');
         return;
       }
+      currentVideoId = query.videoId;
+      void loadOffset(query.videoId); // desfase guardado para esta canción
       void requestLyrics(query, force);
     }
 
@@ -479,9 +559,12 @@ export default defineContentScript({
       currentText = '';
       lastIndex = -2;
       document.getElementById(OVERLAY_ID)?.remove();
-      overlay = statusEl = prevEl = curEl = romajiEl = nextEl = debugEl = null;
+      overlay = statusEl = prevEl = curEl = romajiEl = nextEl = debugEl = offsetEl = null;
       furiBtn = romaBtn = neteaseBtn = reloadBtn = debugBtn = null;
+      fontDownBtn = fontUpBtn = offDownBtn = offUpBtn = null;
       debugLines.length = 0;
+      offset = 0;
+      currentVideoId = '';
     }
 
     const onNavigate = () => {
