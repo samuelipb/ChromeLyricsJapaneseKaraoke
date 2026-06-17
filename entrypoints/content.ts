@@ -282,7 +282,8 @@ export default defineContentScript({
       if (res?.doc && res.doc.lines.length > 0) {
         doc = res.doc;
         lastIndex = -2;
-        setStatus(`🎤 ${res.source ?? 'letra'}${res.cached ? ' (caché)' : ''}`);
+        const label = res.source === 'lrclib-plain' ? 'texto plano (aprox.)' : (res.source ?? 'letra');
+        setStatus(`🎤 ${label}${res.cached ? ' (caché)' : ''}`);
         startLoop();
       } else {
         doc = null;

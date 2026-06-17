@@ -7,10 +7,11 @@ import type {
   OffscreenTokenizeMessage,
   TokenizeResponse,
 } from '../lib/messaging';
-import { lrclibProvider } from '../lib/providers/lrclib';
+import { lrclibPlainProvider, lrclibProvider } from '../lib/providers/lrclib';
 
-// Cadena de proveedores por prioridad (Fase 2: solo LRCLIB por línea).
-const PROVIDERS: LyricsProvider[] = [lrclibProvider];
+// Cadena de proveedores POR PRIORIDAD: sincronizada primero, texto plano interpolado
+// como último recurso. (timedtext de YouTube queda fuera: casi ningún MV tiene captions.)
+const PROVIDERS: LyricsProvider[] = [lrclibProvider, lrclibPlainProvider];
 
 const CACHE_PREFIX = 'lyrics:';
 const OFFSCREEN_URL = 'offscreen.html';
