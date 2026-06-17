@@ -6,36 +6,28 @@
 
 ---
 
-## 📍 Estado actual
-- **Fase:** 5 — Karaoke "wipe" → **CÓDIGO COMPLETO (v1)** en rama `feat/fase-5-karaoke`
-  (typecheck, 67 tests y build verdes). **Pendiente tu prueba manual.**
-- **Hecho en Fase 5 (v1):** resaltado "wipe" que barre la línea activa de izquierda a derecha
-  sincronizado con `currentTime`. `lib/sync/wipe.ts` (`wipeProgress`, clamp 0..1, tested).
-  En content: la línea actual usa `background-clip:text` + gradiente lineal cuyo punto de corte
-  se actualiza cada frame en el bucle rAF (y al hacer seek). `curEl` con `width:fit-content` para
-  que el gradiente coincida con el ancho del texto. Compatible con furigana (ruby se barre igual).
-  **v1 = wipe por LÍNEA (progreso lineal)**; el wipe por palabra (mora) queda como refinamiento.
-
-
-- **Fase:** 4 — Cadena multi-fuente + normalización + caché → **CÓDIGO COMPLETO** en rama
-  `feat/fase-4-multisource` (typecheck, 56 tests y build verdes). **Pendiente tu prueba manual**;
-  luego merge + tag `fase-4`.
-- **Mejora de cobertura (Fase 4):** LRCLIB indexa por tokens **latinos**, así que la búsqueda por
-  campos en kanji fallaba (p. ej. `track_name=あの夢をなぞって` → 0). Ahora `searchLrclib` combina
-  **2 búsquedas** (por campos + general `q=<artista> <título>`) y une candidatos únicos; el filtro
-  por duración ±2 s desempata. Caso demo: `sAuEeM_6zpk` (YOASOBI あの夢をなぞって, MV 239 s) antes
-  no devolvía nada y ahora casa con la sincronizada de LRCLIB (241 s). +1 test (57).
-- **Hecho en Fase 4:** cadena de proveedores POR PRIORIDAD en background
-  (`lrclibProvider` sincronizada → `lrclibPlainProvider` texto plano interpolado). Nueva
-  interpolación por mora (`lib/normalizer/interpolate.ts`, tested): reparte la duración entre
-  líneas de texto plano. LRCLIB refactorizado con `searchLrclib` memoizado (no pega 2× por
-  canción), `pickPlain`. El overlay indica "texto plano (aprox.)" cuando la letra es interpolada.
-  +11 tests (56 total). Caché por `videoId` y modelo interno único ya existían (Fase 2).
-- **timedtext de YouTube (prioridad #1 del plan) DESCARTADO en la práctica:** el endpoint
-  ya no responde sin el contexto de la página, y casi ningún MV musical tiene captions (verificado
-  con curl: Lemon de 米津玄師 no tiene `captionTracks`). Implementarlo bien exigiría leer
-  `ytInitialPlayerResponse` desde un content script en MAIN world; bajo retorno para música.
-  Queda como opcional documentado.
+## 📍 Estado actual  (checkpoint — usuario sin tokens, retomar aquí)
+- **Rama de trabajo:** `feat/fase-5-karaoke` (NO mergeada). `main` está en **tag `fase-4`**.
+- **Fase:** 5 — Karaoke "wipe" → **CÓDIGO COMPLETO** (typecheck, **74 tests** y build verdes).
+  **PENDIENTE: prueba manual del usuario** en Chrome; luego `merge --no-ff` a `main` + `git tag fase-5`.
+- **Hecho en la rama Fase 5 (3 cosas):**
+  1. **Wipe karaoke** (`lib/sync/wipe.ts` `wipeProgress` + tests): la línea activa se barre de
+     izquierda a derecha con `background-clip:text` + gradiente, actualizado cada frame en el rAF
+     (y en seek). `curEl` con `width:fit-content`. Compatible con furigana. *v1 = wipe por LÍNEA
+     (lineal); wipe por palabra/mora queda como refinamiento opcional.*
+  2. **Filtro de relevancia** (`lib/normalizer/match.ts` `isRelevant`/`namesOverlap` + tests):
+     LRCLIB y NetEase descartan candidatos cuyo **artista no coincide** (o título si no hay artista)
+     ANTES de casar por duración → **arregla el bug de "letra equivocada/china"**. Mejor sin letra
+     que letra errónea. Verificado con datos reales (YOASOBI casa; otro artista a igual duración no).
+  3. **Panel de debug** (botón **🐞** en el overlay): muestra paso a paso pista detectada
+     (título/artista/duración), caché HIT/miss, cadena de fuentes, resultado de cada una + tiempos,
+     y errores del tokenizador. El background devuelve `debug[]` en `GetLyricsResponse`. Ajuste
+     `debug` persistido. (Resuelve la "ceguera" al buscar.)
+- **Fase 4** COMPLETADA, mergeada a `main` + **tag `fase-4`**: cadena multi-fuente
+  (LRCLIB sincronizada → NetEase opt-in → LRCLIB texto plano interpolado), búsqueda LRCLIB en 2
+  pasos (campos→`q=`), timeouts (5–6 s), caché **solo positiva** clave `v2` + botón 🔄 (re-buscar),
+  toggle **NetEase** (off por defecto, ToS). timedtext de YouTube descartado (casi ningún MV tiene
+  captions). NetEase tiene cobertura de artistas en kanji (米津玄師).
 - **Fase 3** COMPLETADA Y VERIFICADA, mergeada a `main` + **tag `fase-3`**.
 - **Arquitectura final del tokenizador (tras 3 obstáculos resueltos):**
   1. El **Worker** desde content script lo bloquea el **CSP de YouTube** (`worker-src`) →
@@ -77,10 +69,16 @@
   `https://lrclib.net/*` y el permiso `storage` para la caché por `videoId`.
   *(Aprobado y ya implementado — ver Estado actual.)*
 
-- **▶️ PRÓXIMA TAREA:** verificar Fase 4; luego **Fase 5 — karaoke por palabra** (Enhanced LRC
-  cuando exista + interpolación por mora DENTRO de la línea; resaltado "wipe").
-- **Diferido / opcional:** proveedor timedtext de YouTube (MAIN world, bajo retorno para música);
-  mejora de detección con el panel "Música" de YouTube (Song/Artist estructurado).
+- **▶️ PRÓXIMA TAREA (al retomar):** el usuario prueba la rama `feat/fase-5-karaoke` en Chrome
+  (cargar `.output/chrome-mv3` tras `npm run build`): que el **wipe** se vea acompasado, que el
+  botón **🐞** muestre el proceso, y que ya **no salgan letras equivocadas** (probar con NetEase
+  donde antes salía chino). Si OK → `git checkout main && git merge --no-ff feat/fase-5-karaoke
+  && git tag fase-5 && git branch -d feat/fase-5-karaoke`. Luego **Fase 6** (popup/options) o el
+  wipe por palabra (mora) si lo pide.
+- **Para retomar la rama:** `git checkout feat/fase-5-karaoke` · `npm install` (si node_modules
+  no está) · `npm run build` · `npm test` (74 verdes). Diccionario kuromoji ya vendorizado.
+- **Diferido / opcional:** wipe por PALABRA (mora) dentro de la línea; proveedor timedtext de
+  YouTube (MAIN world, bajo retorno para música); detección con panel "Música" de YouTube.
 - **Pedido del usuario (Fase 6):** control para **aumentar/reducir el tamaño de fuente de la
   letra en tiempo real** (+/− en overlay o atajos), persistido en storage. Anotado en `Plan.md`.
 - **Pedido del usuario (Fase 6):** **ajuste de offset de sincronización por canción**
@@ -155,6 +153,13 @@
   Enhanced LRC cacheado. Discutir alcance/legalidad/coste antes de implementar.
 
 ## 📒 Bitácora (log breve por tarea)
+- **[Fase 5]** (rama `feat/fase-5-karaoke`, sin mergear). 3 cosas: (a) **wipe** karaoke
+  `lib/sync/wipe.ts` + render con `background-clip:text` por frame; (b) **filtro de relevancia**
+  `lib/normalizer/match.ts` en LRCLIB/NetEase → arregla letras equivocadas/chinas; (c) **panel
+  debug** botón 🐞 (background devuelve `debug[]`). +perf (timeouts, LRCLIB 2 pasos), caché solo
+  positiva + 🔄. 74 tests, build verdes. **Pendiente prueba manual → merge + tag `fase-5`.**
+- **[Fase 4]** Mergeada a `main` + **tag `fase-4`**. Multi-fuente (LRCLIB synced → NetEase opt-in →
+  texto plano interpolado), `lib/normalizer/interpolate.ts`, búsqueda LRCLIB combinada campos+q=.
 - **[Fase 4+]** NetEase (opt-in): `lib/providers/netease.ts` (POST /api/search/get + /api/song/lyric,
   match ±2 s, filtra créditos; enabledByDefault=false). Background arma la cadena según ajuste
   `extraSources`; content tiene botón "NetEase" (re-busca al activar) y botón 🔄 (re-buscar
