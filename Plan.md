@@ -229,6 +229,13 @@ type LyricsDoc = { source: string; hasWordTiming: boolean; lines: Line[] };
 - **Fase 4** — Cadena multi-fuente + normalización al modelo interno + caché por `videoId`.
 - **Fase 5** — **Karaoke por palabra**: Enhanced LRC cuando exista + interpolación cuando no.
 - **Fase 6** — Popup + Options (prioridad de fuentes, estilo) + persistencia.
+  - Incluir **control de tamaño de fuente de la letra en tiempo real** (aumentar/reducir
+    con botones +/− en el overlay y/o atajos de teclado), con el valor **persistido** en
+    `chrome.storage`. _(Solicitado por el usuario; pendiente, no implementado aún.)_
+  - Incluir **ajuste de offset de sincronización por canción** (adelantar/atrasar la letra
+    en pasos, p. ej. ±0.1/±0.5 s, con botones/atajos), **persistido por `videoId`** en
+    `chrome.storage`. Cuando los tiempos de la fuente no casan con el audio del video, el
+    usuario corrige el desfase. _(Solicitado por el usuario; pendiente. Ver `karaoke-sync.md`.)_
 - **Fase 7** — *(Opcional)* componente offline de alineación forzada → Enhanced LRC cacheado.
 - **Fase 8** — Pulido: accesibilidad, rendimiento, suite de tests, README y documentación.
 

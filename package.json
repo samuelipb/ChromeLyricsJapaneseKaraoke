@@ -19,5 +19,9 @@
     "typescript": "6.0.3",
     "vitest": "4.1.9",
     "wxt": "0.20.26"
+  },
+  "dependencies": {
+    "@sglkc/kuromoji": "1.1.0",
+    "wanakana": "5.3.1"
   }
 }

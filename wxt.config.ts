@@ -8,8 +8,10 @@ export default defineConfig({
     name: 'Letras JP — furigana + karaoke (YouTube)',
     description:
       'Letras japonesas con furigana y karaoke sincronizado sobre videos de YouTube (uso personal/educativo).',
-    // Permisos mínimos: storage para la caché de letras por videoId.
-    permissions: ['storage'],
+    // Permisos mínimos: storage (caché de letras) + offscreen (corre kuromoji fuera
+    // del CSP de YouTube). El offscreen es del origen de la extensión, así que el
+    // diccionario NO necesita web_accessible_resources.
+    permissions: ['storage', 'offscreen'],
     // YouTube (página) + LRCLIB (única fuente de letras en Fase 2). Nunca <all_urls>.
     host_permissions: ['*://www.youtube.com/*', 'https://lrclib.net/*'],
   },

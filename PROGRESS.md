@@ -7,10 +7,24 @@
 ---
 
 ## 📍 Estado actual
-- **Fase:** 2 — Detección de pista + LRCLIB + letra sincronizada por línea →
-  **COMPLETADA Y VERIFICADA** por el usuario (funciona en videos mainstream tipo YOASOBI/Yonezu).
-  Mergeada a `main` + **tag `fase-2`**. Decisión: se cierra **solo con LRCLIB**; el proveedor de
-  subtítulos de YouTube (timedtext, prioridad #1 del plan) se difiere a la **Fase 4**.
+- **Fase:** 3 — Furigana + toggles furigana/romaji → **COMPLETADA Y VERIFICADA** por el usuario
+  (se ve la furigana sobre los kanji en videos reales). Mergeada a `main` + **tag `fase-3`**.
+- **Arquitectura final del tokenizador (tras 3 obstáculos resueltos):**
+  1. El **Worker** desde content script lo bloquea el **CSP de YouTube** (`worker-src`) →
+     pivote a **offscreen document** (`entrypoints/offscreen/`), origen de la extensión, sin CSP.
+     El **background** gestiona su ciclo de vida (`chrome.offscreen`) y hace de **relé**
+     (con reintentos hasta que el offscreen registra su listener); el content pide tokens por
+     mensaje (`lib/tokenizer/client.ts`). Permiso nuevo **`offscreen`**.
+  2. **zlibjs** (descompresión del kuromoji clásico) revienta en ESM ("'zlib' in undefined") →
+     cambio a la fork **`@sglkc/kuromoji`** (fetch + **fflate**, ESM, sin node `path`).
+  3. El loader de la fork **colapsa todas las barras** y rompía `chrome-extension://` →
+     se carga con **ruta de origen `/dict`** (resuelve relativa al offscreen).
+- **Hecho en Fase 3:** `lib/tokenizer/furigana.ts` (ruby okurigana-aware + romaji, 11 tests).
+  Diccionario vendorizado en `public/dict/` (~17 MB). Render de `<ruby>` por NODOS del DOM;
+  botones **ふりがな** / **ローマ字** persistidos en storage. Deps fijadas: `@sglkc/kuromoji`,
+  `wanakana`. NO se necesitan `web_accessible_resources`.
+- **Fase 2** COMPLETADA Y VERIFICADA, mergeada a `main` + **tag `fase-2`** (solo LRCLIB;
+  timedtext diferido a Fase 4).
 - **Aprendizaje de cobertura:** el video de あいみょん `IL35V9wYr-U` no mostró letra porque
   (a) LRCLIB no tiene NADA de あいみょん/Aimyon, y (b) ese lyric video no tiene captions de YouTube.
   No fue bug: la detección parseó bien (`あいみょん` / `貴方解剖純愛歌 〜死ね〜`) y la extensión degradó
@@ -35,11 +49,15 @@
   `https://lrclib.net/*` y el permiso `storage` para la caché por `videoId`.
   *(Aprobado y ya implementado — ver Estado actual.)*
 
-- **▶️ PRÓXIMA TAREA:** **Fase 3 — Furigana con kuromoji/kuroshiro** (`<ruby>` por nodos,
-  toggle furigana/romaji, tokenizador en worker/offscreen con diccionario vendorizado).
+- **▶️ PRÓXIMA TAREA:** **Fase 4 — cadena multi-fuente** + normalización + caché por videoId.
 - **Diferido a Fase 4 (cadena multi-fuente):** proveedor de subtítulos de YouTube (timedtext,
   prioridad #1), texto plano interpolado como respaldo, y mejora de detección con el panel
   "Música" de YouTube (Song/Artist estructurado), más fiable que limpiar el título.
+- **Pedido del usuario (Fase 6):** control para **aumentar/reducir el tamaño de fuente de la
+  letra en tiempo real** (+/− en overlay o atajos), persistido en storage. Anotado en `Plan.md`.
+- **Pedido del usuario (Fase 6):** **ajuste de offset de sincronización por canción**
+  (adelantar/atrasar la letra ±pasos, persistido por `videoId`) para cuando los tiempos de la
+  fuente no casan con el audio (ej. video `SII-S-zCg-c`). Anotado en `Plan.md` y `karaoke-sync.md`.
 
 ## 🧭 Cómo probar la Fase 1 (manual, lo hace el usuario)
 1. `npm run build` (ya corrido) → genera `.output/chrome-mv3`.
@@ -109,6 +127,12 @@
   Enhanced LRC cacheado. Discutir alcance/legalidad/coste antes de implementar.
 
 ## 📒 Bitácora (log breve por tarea)
+- **[Fase 3]** Furigana: lógica pura `furigana.ts` (ruby okurigana-aware + romaji con corrección
+  de partículas は/へ; 11 tests). Tokenizador en **offscreen document** (kuromoji fuera del CSP de
+  YouTube), background como relé, caché por línea. Diccionario vendorizado `public/dict/` (~17 MB).
+  Render `<ruby>` por nodos + toggles ふりがな/ローマ字 persistidos. Tras resolver 3 obstáculos
+  (CSP worker→offscreen; zlibjs→`@sglkc/kuromoji`+fflate; URL del dict→`/dict`). Deps
+  `@sglkc/kuromoji`+`wanakana` (pin). **Verificado por el usuario.** Merge a `main` + tag `fase-3`.
 - **[Fase 2]** Detección de pista + LRCLIB + letra por línea. `lib/`: model, lrc parser,
   lrclib provider (matching ±2 s), title normalizer (heurística `『』`), messaging. Background
   orquesta + cachea por videoId (storage.local). Content script: detect desde DOM + render
