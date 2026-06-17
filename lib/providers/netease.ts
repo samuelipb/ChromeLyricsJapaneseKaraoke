@@ -3,6 +3,7 @@
 // Off por defecto; el usuario la activa. Ver .claude/rules/lyrics-providers.md y security.md.
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
 import { lrcToDoc, parseLrc } from './lrc';
+import { isRelevant } from '../normalizer/match';
 import { fetchJson } from './http';
 
 const BASE = 'https://music.163.com';
@@ -20,13 +21,25 @@ function buildQuery(q: TrackQuery): string {
   return [q.artist, q.title].filter(Boolean).join(' ');
 }
 
-/** Elige la canción cuya duración (ms→s) casa ±2 s; sin duración, la primera (mejor rankeada). */
-export function pickSong(songs: unknown, durationSec?: number): NeteaseSong | null {
+function songArtist(s: NeteaseSong): string {
+  return (s.artists ?? []).map((a) => a.name ?? '').join(' ');
+}
+
+/**
+ * Elige la canción RELEVANTE (artista/título coinciden con la consulta) cuya duración
+ * (ms→s) casa ±2 s. El filtro de relevancia evita matches falsos (p. ej. una canción
+ * china a la misma duración). Sin duración, la primera relevante.
+ */
+export function pickSong(songs: unknown, query: TrackQuery): NeteaseSong | null {
   if (!Array.isArray(songs)) return null;
   const valid = songs.filter(
-    (s): s is NeteaseSong => !!s && typeof (s as NeteaseSong).id === 'number',
+    (s): s is NeteaseSong =>
+      !!s &&
+      typeof (s as NeteaseSong).id === 'number' &&
+      isRelevant((s as NeteaseSong).name, songArtist(s as NeteaseSong), query.title, query.artist),
   );
   if (valid.length === 0) return null;
+  const durationSec = query.durationSec;
   if (durationSec == null) return valid[0]!;
   const within = valid.filter(
     (s) => typeof s.duration === 'number' && Math.abs(s.duration / 1000 - durationSec) <= DURATION_TOLERANCE_S,
@@ -57,7 +70,7 @@ export const neteaseProvider: LyricsProvider = {
       TIMEOUT_MS,
     )) as { result?: { songs?: unknown } } | null;
 
-    const song = pickSong(search?.result?.songs, query.durationSec);
+    const song = pickSong(search?.result?.songs, query);
     if (!song) return null;
 
     const lyr = (await fetchJson(
