@@ -1,0 +1,38 @@
+# --- Dependencias ---
+node_modules/
+
+# --- Salida de build (WXT) ---
+.output/
+.wxt/
+dist/
+
+# --- Entorno y secretos (NUNCA se versionan) ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+id_rsa
+secrets.json
+
+# --- Diccionarios GENERADOS / cache de runtime ---
+# (el diccionario vendorizado de kuromoji SÍ se versiona bajo public/; aquí solo lo generado)
+/generated/
+/.cache/
+*.dict.tmp
+
+# --- Logs y basura del SO ---
+*.log
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+
+# --- Claude Code: settings locales por máquina (permisos) ---
+# settings.json (compartido) SÍ se versiona; settings.local.json NO.
+.claude/settings.local.json
+
+# --- Editores / temporales ---
+*.local
+.vscode/*
+!.vscode/extensions.json
