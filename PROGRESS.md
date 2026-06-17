@@ -145,6 +145,11 @@
   Enhanced LRC cacheado. Discutir alcance/legalidad/coste antes de implementar.
 
 ## 📒 Bitácora (log breve por tarea)
+- **[Fase 4+]** NetEase (opt-in): `lib/providers/netease.ts` (POST /api/search/get + /api/song/lyric,
+  match ±2 s, filtra créditos; enabledByDefault=false). Background arma la cadena según ajuste
+  `extraSources`; content tiene botón "NetEase" (re-busca al activar) y botón 🔄 (re-buscar
+  ignorando caché). Caché: solo positivos, clave v2. Búsqueda LRCLIB combinada (campos + q=).
+  +host music.163.com. 64 tests. **Pendiente prueba manual.**
 - **[Fase 4]** Cadena multi-fuente: `lrclibProvider` (synced) → `lrclibPlainProvider` (texto
   plano interpolado por mora). `lib/normalizer/interpolate.ts` (moraCount + interpolatePlainLines).
   LRCLIB refactor: `searchLrclib` memoizado + `pickPlain`. Overlay marca "texto plano (aprox.)".
