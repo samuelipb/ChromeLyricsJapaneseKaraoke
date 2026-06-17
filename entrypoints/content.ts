@@ -4,7 +4,14 @@
 // NODOS del DOM (jamás innerHTML). Ver .claude/rules/{mv3,furigana,karaoke-sync}.md.
 import type { LyricsDoc, Line } from '../lib/model';
 import { lineText } from '../lib/model';
-import type { GetLyricsMessage, GetLyricsResponse } from '../lib/messaging';
+import type {
+  GetByIdMessage,
+  GetLyricsMessage,
+  GetLyricsResponse,
+  ManualCandidate,
+  SearchManualMessage,
+  SearchManualResponse,
+} from '../lib/messaging';
 import type { TrackQuery } from '../lib/model';
 import { cleanChannel, cleanTitle, parseTrack } from '../lib/normalizer/title';
 import { Tokenizer } from '../lib/tokenizer/client';
@@ -39,6 +46,7 @@ export default defineContentScript({
     let enabled = true; // encendido/apagado global (icono de la extensión)
     let offset = 0; // desfase de sincronización por canción (segundos)
     let currentVideoId = '';
+    let manualQuery = ''; // búsqueda manual opcional por canción (fallback)
 
     // Estado vivo por video (se descarta en cada reinicialización SPA).
     let overlay: HTMLElement | null = null;
@@ -58,6 +66,8 @@ export default defineContentScript({
     let offDownBtn: HTMLButtonElement | null = null;
     let offUpBtn: HTMLButtonElement | null = null;
     let offsetEl: HTMLElement | null = null;
+    let editBtn: HTMLButtonElement | null = null;
+    let pickEl: HTMLElement | null = null;
     let video: HTMLVideoElement | null = null;
     const videoListeners: Array<[keyof HTMLMediaElementEventMap, EventListener]> = [];
 
@@ -139,6 +149,8 @@ export default defineContentScript({
       offUpBtn.title = 'Adelantar la letra (+0,2 s)';
       offsetEl = document.createElement('span');
       Object.assign(offsetEl.style, { fontSize: '11px', opacity: '0.8', margin: '0 2px', minWidth: '34px', textAlign: 'center' });
+      editBtn = makeBtn('✏️', false);
+      editBtn.title = 'Búsqueda manual de letra (elige de una lista)';
 
       furiBtn.addEventListener('click', () => toggle('furigana'));
       romaBtn.addEventListener('click', () => toggle('romaji'));
@@ -149,9 +161,10 @@ export default defineContentScript({
       fontUpBtn.addEventListener('click', () => changeFont(+0.1));
       offDownBtn.addEventListener('click', () => changeOffset(-0.2));
       offUpBtn.addEventListener('click', () => changeOffset(+0.2));
+      editBtn.addEventListener('click', () => void manualSearch());
       bar.append(
         statusEl, furiBtn, romaBtn, neteaseBtn, reloadBtn, debugBtn,
-        fontDownBtn, fontUpBtn, offDownBtn, offsetEl, offUpBtn,
+        fontDownBtn, fontUpBtn, offDownBtn, offsetEl, offUpBtn, editBtn,
       );
 
       prevEl = document.createElement('div');
@@ -185,7 +198,19 @@ export default defineContentScript({
         overflowY: 'auto',
       } satisfies Partial<CSSStyleDeclaration>);
 
-      el.append(bar, prevEl, curEl, romajiEl, nextEl, debugEl);
+      pickEl = document.createElement('div');
+      Object.assign(pickEl.style, {
+        display: 'none',
+        marginTop: '6px',
+        paddingTop: '4px',
+        borderTop: '1px solid rgba(255,255,255,0.2)',
+        textAlign: 'left',
+        maxHeight: '160px',
+        overflowY: 'auto',
+        pointerEvents: 'auto',
+      } satisfies Partial<CSSStyleDeclaration>);
+
+      el.append(bar, prevEl, curEl, romajiEl, nextEl, pickEl, debugEl);
       document.body.appendChild(el);
       overlay = el;
       applyFontScale();
@@ -239,6 +264,152 @@ export default defineContentScript({
         /* sin desfase guardado */
       }
       updateOffsetDisplay();
+    }
+
+    // --- Búsqueda manual de letra (fallback con selección) ------------------
+    function applyDoc(d: LyricsDoc, label: string): void {
+      doc = d;
+      lastIndex = -2;
+      activeLine = null;
+      setStatus(`🎤 ${label}`);
+      startLoop();
+    }
+
+    /** Si pegan una URL de lrclib.net/search/… extrae el término; si no, el texto tal cual. */
+    function extractQuery(input: string): string {
+      const m = input.match(/lrclib\.net\/search\/([^?#]+)/i);
+      if (m) {
+        try {
+          return decodeURIComponent(m[1]!).trim();
+        } catch {
+          return m[1]!.trim();
+        }
+      }
+      return input;
+    }
+
+    function durationOrUndef(): number | undefined {
+      return video && Number.isFinite(video.duration) ? video.duration : undefined;
+    }
+
+    function hidePicker(): void {
+      if (pickEl) {
+        pickEl.textContent = '';
+        pickEl.style.display = 'none';
+      }
+    }
+
+    async function manualSearch(): Promise<void> {
+      if (!currentVideoId) return;
+      const input = window.prompt(
+        'Búsqueda manual de letra (texto, o pega una URL de lrclib.net/search/…).\nVacío = volver a la búsqueda automática:',
+        manualQuery,
+      );
+      if (input == null) return;
+      const q = extractQuery(input.trim());
+      if (!q) {
+        manualQuery = '';
+        await browser.storage.local.remove(`manualPick:${currentVideoId}`);
+        hidePicker();
+        setStatus('búsqueda manual borrada — re-buscando…');
+        void kickoff(true);
+        return;
+      }
+      manualQuery = q;
+      hidePicker();
+      setStatus('🔎 buscando: ' + q);
+      const msg: SearchManualMessage = { type: 'SEARCH_MANUAL', query: q };
+      let res: SearchManualResponse;
+      try {
+        res = (await browser.runtime.sendMessage(msg)) as SearchManualResponse;
+      } catch {
+        setStatus('⚠️ error en la búsqueda manual');
+        return;
+      }
+      const cands = res?.candidates ?? [];
+      dbg(`búsqueda manual "${q}": ${cands.length} resultados`);
+      if (cands.length === 0) {
+        setStatus('🙈 sin resultados para esa búsqueda');
+        return;
+      }
+      if (cands.length === 1) {
+        void pickManual(cands[0]!);
+        return;
+      }
+      renderPicker(cands);
+    }
+
+    function renderPicker(cands: ManualCandidate[]): void {
+      if (!pickEl) return;
+      pickEl.textContent = '';
+      const hint = document.createElement('div');
+      Object.assign(hint.style, { fontSize: '11px', opacity: '0.7', marginBottom: '4px' });
+      hint.textContent = `Elige una versión (${cands.length}):`;
+      pickEl.appendChild(hint);
+      for (const c of cands.slice(0, 12)) {
+        const b = document.createElement('button');
+        Object.assign(b.style, {
+          display: 'block',
+          width: '100%',
+          textAlign: 'left',
+          cursor: 'pointer',
+          pointerEvents: 'auto',
+          border: 'none',
+          borderRadius: '6px',
+          padding: '4px 8px',
+          margin: '2px 0',
+          background: 'rgba(255,255,255,0.12)',
+          color: '#fff',
+          font: '12px/1.3 system-ui, sans-serif',
+        } satisfies Partial<CSSStyleDeclaration>);
+        const dur = c.durationSec ? ` · ${Math.round(c.durationSec)}s` : '';
+        b.textContent = `[${c.source}] ${c.artist} — ${c.title}${dur} ${c.hasSynced ? '· sync' : '· texto'}`;
+        b.addEventListener('click', () => void pickManual(c));
+        pickEl.appendChild(b);
+      }
+      pickEl.style.display = 'block';
+    }
+
+    async function pickManual(c: ManualCandidate): Promise<void> {
+      hidePicker();
+      setStatus(`🔎 cargando: ${c.artist} — ${c.title}`);
+      const msg: GetByIdMessage = { type: 'GET_BY_ID', source: c.source, id: c.id, durationSec: durationOrUndef() };
+      let res: GetLyricsResponse;
+      try {
+        res = (await browser.runtime.sendMessage(msg)) as GetLyricsResponse;
+      } catch {
+        setStatus('⚠️ no se pudo cargar esa letra');
+        return;
+      }
+      if (res?.doc && res.doc.lines.length > 0) {
+        applyDoc(res.doc, `${res.source} (manual)`);
+        if (currentVideoId) {
+          void browser.storage.local.set({ [`manualPick:${currentVideoId}`]: { source: c.source, id: c.id } });
+        }
+        dbg(`manual elegido: [${c.source}] ${c.title} · ${res.doc.lines.length} líneas`);
+      } else {
+        setStatus('🙈 ese resultado no tiene letra usable');
+      }
+    }
+
+    /** Aplica el pick manual guardado para este video, si existe. */
+    async function loadManualPick(videoId: string): Promise<boolean> {
+      try {
+        const key = `manualPick:${videoId}`;
+        const got = await browser.storage.local.get(key);
+        const pick = got[key] as { source: string; id: string | number } | undefined;
+        if (!pick) return false;
+        const msg: GetByIdMessage = { type: 'GET_BY_ID', source: pick.source, id: pick.id, durationSec: durationOrUndef() };
+        const res = (await browser.runtime.sendMessage(msg)) as GetLyricsResponse;
+        if (res?.doc && res.doc.lines.length > 0) {
+          applyDoc(res.doc, `${res.source} (manual)`);
+          dbg('aplicado pick manual guardado');
+          return true;
+        }
+      } catch {
+        /* si falla, sigue con la búsqueda automática */
+      }
+      return false;
     }
 
     function setStatus(text: string): void {
@@ -532,7 +703,7 @@ export default defineContentScript({
     }
 
     // --- Ciclo de vida -------------------------------------------------------
-    function kickoff(force = false): void {
+    async function kickoff(force = false): Promise<void> {
       dbg('título crudo: ' + document.title);
       const query = detectTrack();
       if (!query) {
@@ -541,7 +712,9 @@ export default defineContentScript({
         return;
       }
       currentVideoId = query.videoId;
-      void loadOffset(query.videoId); // desfase guardado para esta canción
+      await loadOffset(query.videoId); // desfase guardado para esta canción
+      // Si el usuario eligió una letra manual para este video, se aplica (salvo re-buscar).
+      if (!force && (await loadManualPick(query.videoId))) return;
       void requestLyrics(query, force);
     }
 
@@ -563,12 +736,13 @@ export default defineContentScript({
       currentText = '';
       lastIndex = -2;
       document.getElementById(OVERLAY_ID)?.remove();
-      overlay = statusEl = prevEl = curEl = romajiEl = nextEl = debugEl = offsetEl = null;
+      overlay = statusEl = prevEl = curEl = romajiEl = nextEl = debugEl = offsetEl = pickEl = null;
       furiBtn = romaBtn = neteaseBtn = reloadBtn = debugBtn = null;
-      fontDownBtn = fontUpBtn = offDownBtn = offUpBtn = null;
+      fontDownBtn = fontUpBtn = offDownBtn = offUpBtn = editBtn = null;
       debugLines.length = 0;
       offset = 0;
       currentVideoId = '';
+      manualQuery = '';
     }
 
     const onNavigate = () => {

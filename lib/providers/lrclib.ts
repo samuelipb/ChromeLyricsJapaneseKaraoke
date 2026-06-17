@@ -3,6 +3,7 @@
 // - lrclibPlainProvider: TEXTO PLANO interpolado (último recurso) cuando no hay sincronizada.
 // Casan por título + artista + duración (±2 s). Ver .claude/rules/lyrics-providers.md.
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
+import type { ManualCandidate } from '../messaging';
 import { lrcToDoc, parseLrc } from './lrc';
 import { interpolatePlainLines } from '../normalizer/interpolate';
 import { isRelevant, relevanceScore } from '../normalizer/match';
@@ -158,6 +159,39 @@ export const lrclibProvider: LyricsProvider = {
     return candidateToDoc(cand, query.durationSec);
   },
 };
+
+// --- Búsqueda manual + traer por id (fallback con selección) ---------------
+export async function lrclibManualSearch(text: string): Promise<ManualCandidate[]> {
+  const url = `${BASE}/api/search?${new URLSearchParams({ q: text }).toString()}`;
+  const cands = toCandidates(await fetchJson(url, { headers: { Accept: 'application/json' } }, TIMEOUT_MS));
+  return cands
+    .filter((c) => c.id != null && !c.instrumental && (c.syncedLyrics || c.plainLyrics))
+    .map((c) => ({
+      source: 'lrclib',
+      id: c.id!,
+      artist: c.artistName ?? '',
+      title: c.trackName ?? '',
+      durationSec: c.duration,
+      hasSynced: !!c.syncedLyrics,
+    }));
+}
+
+export async function lrclibGetById(id: string | number, durationSec?: number): Promise<LyricsDoc | null> {
+  const data = (await fetchJson(
+    `${BASE}/api/get/${id}`,
+    { headers: { Accept: 'application/json' } },
+    TIMEOUT_MS,
+  )) as LrclibCandidate | null;
+  if (!data) return null;
+  const doc = candidateToDoc(data, durationSec);
+  if (doc) return doc;
+  if (typeof data.plainLyrics === 'string' && (durationSec ?? data.duration)) {
+    const dur = durationSec ?? data.duration!;
+    const plain = interpolatePlainLines(data.plainLyrics.split(/\r?\n/), dur, 'lrclib-plain');
+    return plain.lines.length > 0 ? plain : null;
+  }
+  return null;
+}
 
 export const lrclibPlainProvider: LyricsProvider = {
   id: 'lrclib-plain',

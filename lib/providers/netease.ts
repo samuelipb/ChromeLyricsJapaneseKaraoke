@@ -2,6 +2,7 @@
 // Gran cobertura japonesa, incluido artistas en kanji. Letra sincronizada por línea (LRC).
 // Off por defecto; el usuario la activa. Ver .claude/rules/lyrics-providers.md y security.md.
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
+import type { ManualCandidate } from '../messaging';
 import { lrcToDoc, parseLrc } from './lrc';
 import { isRelevant, relevanceScore } from '../normalizer/match';
 import { fetchJson } from './http';
@@ -68,6 +69,39 @@ export function neteaseLrcToDoc(lrc: string, durationSec?: number): LyricsDoc | 
   const entries = parseLrc(lrc).filter((e) => e.text.length > 0 && !CREDIT.test(e.text));
   if (entries.length === 0) return null;
   return lrcToDoc(entries, 'netease', durationSec);
+}
+
+// --- Búsqueda manual + traer por id (fallback con selección) ---------------
+export async function neteaseManualSearch(text: string): Promise<ManualCandidate[]> {
+  const body = new URLSearchParams({ s: text, type: '1', limit: '10', offset: '0' }).toString();
+  const search = (await fetchJson(
+    `${BASE}/api/search/get`,
+    { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body },
+    TIMEOUT_MS,
+  )) as { result?: { songs?: unknown } } | null;
+  const songs = search?.result?.songs;
+  if (!Array.isArray(songs)) return [];
+  return songs
+    .filter((s): s is NeteaseSong => !!s && typeof (s as NeteaseSong).id === 'number')
+    .map((s) => ({
+      source: 'netease',
+      id: s.id,
+      artist: songArtist(s),
+      title: s.name ?? '',
+      durationSec: typeof s.duration === 'number' ? s.duration / 1000 : undefined,
+      hasSynced: true,
+    }));
+}
+
+export async function neteaseGetById(id: string | number, durationSec?: number): Promise<LyricsDoc | null> {
+  const lyr = (await fetchJson(
+    `${BASE}/api/song/lyric?os=pc&lv=-1&kv=-1&tv=-1&id=${id}`,
+    undefined,
+    TIMEOUT_MS,
+  )) as { lrc?: { lyric?: unknown } } | null;
+  const lrc = lyr?.lrc?.lyric;
+  if (typeof lrc !== 'string') return null;
+  return neteaseLrcToDoc(lrc, durationSec);
 }
 
 export const neteaseProvider: LyricsProvider = {
