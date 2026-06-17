@@ -15,15 +15,18 @@ export class Tokenizer {
 
     const msg: TokenizeMessage = { type: 'TOKENIZE', text };
     let res: TokenizeResponse | undefined;
+    console.log('[letras-jp] content: pido tokens →', text.slice(0, 16));
     try {
       res = (await browser.runtime.sendMessage(msg)) as TokenizeResponse | undefined;
     } catch (e) {
-      const m = e instanceof Error ? e.message : String(e);
+      const m = 'content→bg: ' + (e instanceof Error ? e.message : String(e));
+      console.error('[letras-jp] content: sendMessage al background falló:', m);
       this.onError?.(m);
       throw new Error(m);
     }
     if (!res || res.error || !res.tokens) {
       const m = res?.error ?? 'sin respuesta del tokenizador';
+      console.warn('[letras-jp] content: respuesta sin tokens:', res);
       this.onError?.(m);
       throw new Error(m);
     }

@@ -4,19 +4,22 @@
 // dejar el documento mudo. Responde a {target:'offscreen', type:'TOKENIZE'}.
 import { browser } from 'wxt/browser';
 import { toHiragana } from 'wanakana';
-import type { Tokenizer as KuromojiTokenizer } from 'kuromoji';
+import type { IpadicFeatures, Tokenizer } from '@sglkc/kuromoji';
 import type { KToken } from '../../lib/tokenizer/furigana';
 import type { OffscreenTokenizeMessage, TokenizeResponse } from '../../lib/messaging';
 
-let tokenizerPromise: Promise<KuromojiTokenizer> | null = null;
+type JpTokenizer = Tokenizer<IpadicFeatures>;
+let tokenizerPromise: Promise<JpTokenizer> | null = null;
 
-async function buildTokenizer(): Promise<KuromojiTokenizer> {
-  const { default: kuromoji } = await import('kuromoji');
+async function buildTokenizer(): Promise<JpTokenizer> {
+  // Fork @sglkc/kuromoji: usa fetch + fflate (sin zlibjs ni node 'path'), apto para
+  // navegador/ESM. Carga perezosa para reportar errores en vez de quedar mudo.
+  const { builder } = await import('@sglkc/kuromoji');
   const getURL = browser.runtime.getURL as (path: string) => string;
   const dicPath = getURL('dict/');
   console.log('[letras-jp] offscreen: cargando diccionario kuromoji desde', dicPath);
-  return new Promise<KuromojiTokenizer>((resolve, reject) => {
-    kuromoji.builder({ dicPath }).build((err, tokenizer) => {
+  return new Promise<JpTokenizer>((resolve, reject) => {
+    builder({ dicPath }).build((err, tokenizer) => {
       if (err) reject(err);
       else {
         console.log('[letras-jp] offscreen: diccionario listo');
@@ -26,7 +29,7 @@ async function buildTokenizer(): Promise<KuromojiTokenizer> {
   });
 }
 
-function getTokenizer(): Promise<KuromojiTokenizer> {
+function getTokenizer(): Promise<JpTokenizer> {
   if (!tokenizerPromise) tokenizerPromise = buildTokenizer();
   return tokenizerPromise;
 }
