@@ -3,9 +3,11 @@
 // Off por defecto; el usuario la activa. Ver .claude/rules/lyrics-providers.md y security.md.
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
 import { lrcToDoc, parseLrc } from './lrc';
+import { fetchJson } from './http';
 
 const BASE = 'https://music.163.com';
 const DURATION_TOLERANCE_S = 2;
+const TIMEOUT_MS = 6000; // NetEase (China) puede ser lento desde fuera
 
 interface NeteaseSong {
   id: number;
@@ -44,32 +46,24 @@ export function neteaseLrcToDoc(lrc: string, durationSec?: number): LyricsDoc | 
   return lrcToDoc(entries, 'netease', durationSec);
 }
 
-async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
-  try {
-    const res = await fetch(url, init);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
 export const neteaseProvider: LyricsProvider = {
   id: 'netease',
   enabledByDefault: false, // fuente opt-in (ToS): desactivada por defecto
   async fetch(query: TrackQuery): Promise<LyricsDoc | null> {
     const body = new URLSearchParams({ s: buildQuery(query), type: '1', limit: '10', offset: '0' }).toString();
-    const search = (await fetchJson(`${BASE}/api/search/get`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    })) as { result?: { songs?: unknown } } | null;
+    const search = (await fetchJson(
+      `${BASE}/api/search/get`,
+      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body },
+      TIMEOUT_MS,
+    )) as { result?: { songs?: unknown } } | null;
 
     const song = pickSong(search?.result?.songs, query.durationSec);
     if (!song) return null;
 
     const lyr = (await fetchJson(
       `${BASE}/api/song/lyric?os=pc&lv=-1&kv=-1&tv=-1&id=${song.id}`,
+      undefined,
+      TIMEOUT_MS,
     )) as { lrc?: { lyric?: unknown } } | null;
     const lrc = lyr?.lrc?.lyric;
     if (typeof lrc !== 'string') return null;

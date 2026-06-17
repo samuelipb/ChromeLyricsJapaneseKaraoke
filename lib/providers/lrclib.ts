@@ -5,10 +5,12 @@
 import type { LyricsDoc, LyricsProvider, TrackQuery } from '../model';
 import { lrcToDoc, parseLrc } from './lrc';
 import { interpolatePlainLines } from '../normalizer/interpolate';
+import { fetchJson } from './http';
 
 const BASE = 'https://lrclib.net';
 const DURATION_TOLERANCE_S = 2;
 const MEMO_TTL_MS = 60_000;
+const TIMEOUT_MS = 5000;
 
 /** Forma (parcial, no confiable) de un resultado de /api/search. */
 export interface LrclibCandidate {
@@ -38,51 +40,31 @@ function buildSearchUrls(q: TrackQuery): string[] {
   return [`${BASE}/api/search?${field.toString()}`, `${BASE}/api/search?${general.toString()}`];
 }
 
-async function fetchJson(url: string): Promise<unknown> {
-  let res: Response;
-  try {
-    res = await fetch(url, { headers: { Accept: 'application/json' } });
-  } catch {
-    return null; // red caída → degradación elegante
-  }
-  if (!res.ok) return null;
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
+function toCandidates(data: unknown): LrclibCandidate[] {
+  return Array.isArray(data) ? (data.filter((c) => c && typeof c === 'object') as LrclibCandidate[]) : [];
 }
 
 // Memo compartido entre los dos proveedores para no pegar dos veces a LRCLIB por canción.
 const memo = new Map<string, { ts: number; data: LrclibCandidate[] }>();
 
-function candKey(c: LrclibCandidate): string {
-  return c.id != null ? `id:${c.id}` : `${c.artistName}|${c.trackName}|${c.duration}`;
-}
-
-/** Lanza ambas búsquedas y devuelve los candidatos únicos combinados. */
+/**
+ * Busca en 2 PASOS para minimizar peticiones (latencia/rate-limiting):
+ * 1) por campos (preciso); si no devuelve nada,
+ * 2) general `q=` (recall para japonés/romaji). El filtro por duración desempata.
+ */
 async function searchLrclib(query: TrackQuery): Promise<LrclibCandidate[]> {
-  const urls = buildSearchUrls(query);
-  const key = urls.join('|');
+  const [fieldUrl, queryUrl] = buildSearchUrls(query);
+  const key = fieldUrl;
   const cached = memo.get(key);
   if (cached && Date.now() - cached.ts < MEMO_TTL_MS) return cached.data;
 
-  const lists = await Promise.all(urls.map(fetchJson));
-  const merged: LrclibCandidate[] = [];
-  const seen = new Set<string>();
-  for (const list of lists) {
-    if (!Array.isArray(list)) continue;
-    for (const c of list) {
-      if (!c || typeof c !== 'object') continue;
-      const cand = c as LrclibCandidate;
-      const k = candKey(cand);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      merged.push(cand);
-    }
+  const headers = { Accept: 'application/json' };
+  let list = toCandidates(await fetchJson(fieldUrl!, { headers }, TIMEOUT_MS));
+  if (list.length === 0) {
+    list = toCandidates(await fetchJson(queryUrl!, { headers }, TIMEOUT_MS));
   }
-  if (merged.length > 0) memo.set(key, { ts: Date.now(), data: merged });
-  return merged;
+  if (list.length > 0) memo.set(key, { ts: Date.now(), data: list });
+  return list;
 }
 
 function withinDuration(c: LrclibCandidate, durationSec: number): boolean {
