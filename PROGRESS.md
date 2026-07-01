@@ -12,8 +12,16 @@
   texto plano interpolado), furigana (offscreen kuromoji), karaoke "wipe", on/off por icono,
   panel debug 🐞, **controles de tamaño (A−/A+), desfase por canción (⏪/⏩) y búsqueda manual
   con selección (✏️)**. 79 tests verdes.
-- **▶️ PRÓXIMA:** **Fase 8 — pulido** (icono propio, README, accesibilidad/rendimiento, e2e).
-  *(Fase 7 = alineación forzada offline, opcional, no iniciada.)*
+- **Fase 8 (rama `feat/fase-8-polish`, en curso):** hecho hasta ahora → icono propio (16/32/48/128
+  + generador reproducible), README, **bloque de karaoke multi-línea** (botón ≡: 1–3 líneas,
+  activa con wipe + próximas tenues, ajuste `karaokeLines` persistido; refactor
+  `renderCurrent` → `renderBlock`/`renderLineInto`), y **pick manual cacheado por `videoId`**
+  en la caché normal del background (`GET_BY_ID` acepta `videoId`; se eliminó el mecanismo
+  aparte `manualPick:` + `loadManualPick`). Typecheck/build/79 tests verdes.
+- **▶️ PRÓXIMA:** seguir **Fase 8 — pulido**: el usuario prueba en Chrome el bloque multi-línea
+  (botón ≡) y el pick manual cacheado (elegir con ✏️, recargar el video → debe salir de caché);
+  quedan accesibilidad/rendimiento y e2e mínimo (Playwright). Al terminar → merge a `main` +
+  tag `fase-8`. *(Fase 7 = alineación forzada offline, opcional, no iniciada.)*
 - **Pendiente/ideas:** Options/popup con prioridad de fuentes; atajos de teclado para offset;
   más fuentes opt-in. Ver bitácora para detalle por fase.
 
