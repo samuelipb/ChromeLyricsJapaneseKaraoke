@@ -166,12 +166,22 @@ async function handleSearchManual(text: string): Promise<SearchManualResponse> {
   return { candidates };
 }
 
-async function handleGetById(source: string, id: string | number, durationSec?: number): Promise<GetLyricsResponse> {
+async function handleGetById(
+  source: string,
+  id: string | number,
+  durationSec?: number,
+  videoId?: string,
+): Promise<GetLyricsResponse> {
   let doc: GetLyricsResponse['doc'] = null;
   try {
     doc = source === 'netease' ? await neteaseGetById(id, durationSec) : await lrclibGetById(id, durationSec);
   } catch {
     doc = null;
+  }
+  // Cachea la elección manual por videoId → la próxima visita la sirve sin red.
+  if (doc && videoId) {
+    const entry: CacheEntry = { doc, source, ts: Date.now() };
+    await browser.storage.local.set({ [CACHE_PREFIX + videoId]: entry });
   }
   return { doc, source: doc ? source : null, cached: false };
 }
@@ -220,7 +230,7 @@ export default defineBackground(() => {
         return handleSearchManual(message.query).catch(() => ({ candidates: [] }) satisfies SearchManualResponse);
       }
       if (message?.type === 'GET_BY_ID') {
-        return handleGetById(message.source, message.id, message.durationSec).catch(
+        return handleGetById(message.source, message.id, message.durationSec, message.videoId).catch(
           () => ({ doc: null, source: null, cached: false }) satisfies GetLyricsResponse,
         );
       }

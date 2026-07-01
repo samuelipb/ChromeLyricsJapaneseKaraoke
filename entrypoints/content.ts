@@ -30,6 +30,10 @@ interface Settings {
   debug: boolean;
   /** Escala del tamaño de la letra (1 = base). */
   fontScale: number;
+  /** Cuántas líneas de karaoke mostrar a la vez (activa + próximas), 1–3. */
+  karaokeLines: number;
+  /** Opacidad del fondo del overlay (0–1); subir cuando el video no deja leer la letra. */
+  bgOpacity: number;
 }
 
 export default defineContentScript({
@@ -41,7 +45,15 @@ export default defineContentScript({
 
     // Tokenizador: vive toda la sesión del content script (no recarga el diccionario por video).
     let tokenizer: Tokenizer | null = null;
-    const settings: Settings = { furigana: true, romaji: false, extraSources: false, debug: false, fontScale: 1 };
+    const settings: Settings = {
+      furigana: true,
+      romaji: false,
+      extraSources: false,
+      debug: false,
+      fontScale: 1,
+      karaokeLines: 2,
+      bgOpacity: 0.74,
+    };
     const debugLines: string[] = [];
     let enabled = true; // encendido/apagado global (icono de la extensión)
     let offset = 0; // desfase de sincronización por canción (segundos)
@@ -52,7 +64,7 @@ export default defineContentScript({
     let overlay: HTMLElement | null = null;
     let statusEl: HTMLElement | null = null;
     let prevEl: HTMLElement | null = null;
-    let curEl: HTMLElement | null = null;
+    const kEls: HTMLElement[] = []; // bloque de karaoke (activa + próximas), con furigana
     let romajiEl: HTMLElement | null = null;
     let nextEl: HTMLElement | null = null;
     let furiBtn: HTMLButtonElement | null = null;
@@ -66,6 +78,8 @@ export default defineContentScript({
     let offDownBtn: HTMLButtonElement | null = null;
     let offUpBtn: HTMLButtonElement | null = null;
     let offsetEl: HTMLElement | null = null;
+    let linesBtn: HTMLButtonElement | null = null;
+    let bgBtn: HTMLButtonElement | null = null;
     let editBtn: HTMLButtonElement | null = null;
     let pickEl: HTMLElement | null = null;
     let video: HTMLVideoElement | null = null;
@@ -118,7 +132,7 @@ export default defineContentScript({
         zIndex: '2147483647',
         maxWidth: 'min(80vw, 900px)',
         padding: '10px 16px',
-        background: 'rgba(0, 0, 0, 0.74)',
+        background: `rgba(0, 0, 0, ${settings.bgOpacity})`,
         color: '#fff',
         textAlign: 'center',
         borderRadius: '12px',
@@ -151,6 +165,10 @@ export default defineContentScript({
       Object.assign(offsetEl.style, { fontSize: '11px', opacity: '0.8', margin: '0 2px', minWidth: '34px', textAlign: 'center' });
       editBtn = makeBtn('✏️', false);
       editBtn.title = 'Búsqueda manual de letra (elige de una lista)';
+      linesBtn = makeBtn(`≡${settings.karaokeLines}`, false);
+      linesBtn.title = 'Líneas de karaoke a la vez (1–3)';
+      bgBtn = makeBtn('🌓', false);
+      bgBtn.title = 'Opacidad del fondo (25 → 50 → 75 → 90 %)';
 
       furiBtn.addEventListener('click', () => toggle('furigana'));
       romaBtn.addEventListener('click', () => toggle('romaji'));
@@ -162,27 +180,36 @@ export default defineContentScript({
       offDownBtn.addEventListener('click', () => changeOffset(-0.2));
       offUpBtn.addEventListener('click', () => changeOffset(+0.2));
       editBtn.addEventListener('click', () => void manualSearch());
+      linesBtn.addEventListener('click', () => changeLines());
+      bgBtn.addEventListener('click', () => changeBgOpacity());
       bar.append(
         statusEl, furiBtn, romaBtn, neteaseBtn, reloadBtn, debugBtn,
-        fontDownBtn, fontUpBtn, offDownBtn, offsetEl, offUpBtn, editBtn,
+        fontDownBtn, fontUpBtn, linesBtn, bgBtn, offDownBtn, offsetEl, offUpBtn, editBtn,
       );
 
       prevEl = document.createElement('div');
-      curEl = document.createElement('div');
       romajiEl = document.createElement('div');
       nextEl = document.createElement('div');
-      Object.assign(prevEl.style, { fontSize: '15px', opacity: '0.45' });
+      Object.assign(prevEl.style, { fontSize: '15px', opacity: '0.45', textShadow: TEXT_SHADOW });
+      Object.assign(romajiEl.style, { fontSize: '13px', opacity: '0.8', display: 'none', textShadow: TEXT_SHADOW });
+      Object.assign(nextEl.style, { fontSize: '15px', opacity: '0.45', textShadow: TEXT_SHADOW });
+
+      // Bloque de karaoke: kEls[0] = línea activa (con wipe); kEls[1..] = próximas.
       // width:fit-content + margin auto → la caja se ajusta al texto y queda centrada,
-      // así el gradiente del "wipe" (0–100%) coincide con el ancho real del texto.
-      Object.assign(curEl.style, {
-        fontSize: '24px',
-        fontWeight: '700',
-        margin: '2px auto',
-        width: 'fit-content',
-        maxWidth: '100%',
-      });
-      Object.assign(romajiEl.style, { fontSize: '13px', opacity: '0.8', display: 'none' });
-      Object.assign(nextEl.style, { fontSize: '15px', opacity: '0.45' });
+      // así el gradiente del "wipe" coincide con el ancho real del texto.
+      kEls.length = 0;
+      for (let k = 0; k < 3; k++) {
+        const el = document.createElement('div');
+        Object.assign(el.style, {
+          margin: '2px auto',
+          width: 'fit-content',
+          maxWidth: '100%',
+          fontWeight: k === 0 ? '700' : '400',
+          opacity: k === 0 ? '1' : '0.55',
+          display: 'none',
+        } satisfies Partial<CSSStyleDeclaration>);
+        kEls.push(el);
+      }
 
       debugEl = document.createElement('div');
       Object.assign(debugEl.style, {
@@ -210,7 +237,7 @@ export default defineContentScript({
         pointerEvents: 'auto',
       } satisfies Partial<CSSStyleDeclaration>);
 
-      el.append(bar, prevEl, curEl, romajiEl, nextEl, pickEl, debugEl);
+      el.append(bar, prevEl, kEls[0]!, romajiEl, kEls[1]!, kEls[2]!, nextEl, pickEl, debugEl);
       document.body.appendChild(el);
       overlay = el;
       applyFontScale();
@@ -222,9 +249,30 @@ export default defineContentScript({
     function applyFontScale(): void {
       const s = settings.fontScale;
       if (prevEl) prevEl.style.fontSize = `${15 * s}px`;
-      if (curEl) curEl.style.fontSize = `${24 * s}px`;
+      if (kEls[0]) kEls[0].style.fontSize = `${24 * s}px`; // activa, grande
+      if (kEls[1]) kEls[1].style.fontSize = `${18 * s}px`; // próximas, medianas
+      if (kEls[2]) kEls[2].style.fontSize = `${18 * s}px`;
       if (romajiEl) romajiEl.style.fontSize = `${13 * s}px`;
       if (nextEl) nextEl.style.fontSize = `${15 * s}px`;
+    }
+
+    function changeBgOpacity(): void {
+      const steps = [0.25, 0.5, 0.74, 0.9];
+      const i = steps.findIndex((v) => v > settings.bgOpacity + 0.01);
+      settings.bgOpacity = steps[i >= 0 ? i : 0]!; // 25 → 50 → 75 → 90 → 25
+      if (overlay) overlay.style.background = `rgba(0, 0, 0, ${settings.bgOpacity})`;
+      void browser.storage.local.set({ [SETTINGS_KEY]: settings });
+    }
+
+    function changeLines(): void {
+      settings.karaokeLines = (settings.karaokeLines % 3) + 1; // 1 → 2 → 3 → 1
+      if (linesBtn) linesBtn.textContent = `≡${settings.karaokeLines}`;
+      void browser.storage.local.set({ [SETTINGS_KEY]: settings });
+      lastIndex = -2;
+      if (video) {
+        renderAt(nowT());
+        updateWipe(nowT());
+      }
     }
 
     function changeFont(delta: number): void {
@@ -373,7 +421,14 @@ export default defineContentScript({
     async function pickManual(c: ManualCandidate): Promise<void> {
       hidePicker();
       setStatus(`🔎 cargando: ${c.artist} — ${c.title}`);
-      const msg: GetByIdMessage = { type: 'GET_BY_ID', source: c.source, id: c.id, durationSec: durationOrUndef() };
+      // Pasamos videoId → el background la cachea; la próxima visita la sirve sin red.
+      const msg: GetByIdMessage = {
+        type: 'GET_BY_ID',
+        source: c.source,
+        id: c.id,
+        durationSec: durationOrUndef(),
+        videoId: currentVideoId || undefined,
+      };
       let res: GetLyricsResponse;
       try {
         res = (await browser.runtime.sendMessage(msg)) as GetLyricsResponse;
@@ -383,33 +438,10 @@ export default defineContentScript({
       }
       if (res?.doc && res.doc.lines.length > 0) {
         applyDoc(res.doc, `${res.source} (manual)`);
-        if (currentVideoId) {
-          void browser.storage.local.set({ [`manualPick:${currentVideoId}`]: { source: c.source, id: c.id } });
-        }
-        dbg(`manual elegido: [${c.source}] ${c.title} · ${res.doc.lines.length} líneas`);
+        dbg(`manual elegido: [${c.source}] ${c.title} · ${res.doc.lines.length} líneas (cacheado)`);
       } else {
         setStatus('🙈 ese resultado no tiene letra usable');
       }
-    }
-
-    /** Aplica el pick manual guardado para este video, si existe. */
-    async function loadManualPick(videoId: string): Promise<boolean> {
-      try {
-        const key = `manualPick:${videoId}`;
-        const got = await browser.storage.local.get(key);
-        const pick = got[key] as { source: string; id: string | number } | undefined;
-        if (!pick) return false;
-        const msg: GetByIdMessage = { type: 'GET_BY_ID', source: pick.source, id: pick.id, durationSec: durationOrUndef() };
-        const res = (await browser.runtime.sendMessage(msg)) as GetLyricsResponse;
-        if (res?.doc && res.doc.lines.length > 0) {
-          applyDoc(res.doc, `${res.source} (manual)`);
-          dbg('aplicado pick manual guardado');
-          return true;
-        }
-      } catch {
-        /* si falla, sigue con la búsqueda automática */
-      }
-      return false;
     }
 
     function setStatus(text: string): void {
@@ -424,7 +456,11 @@ export default defineContentScript({
       if (furiBtn) furiBtn.style.background = settings.furigana ? ON : OFF;
       if (romaBtn) romaBtn.style.background = settings.romaji ? ON : OFF;
       void browser.storage.local.set({ [SETTINGS_KEY]: settings });
-      if (activeLine) renderCurrent(activeLine);
+      lastIndex = -2; // re-render del bloque con la nueva preferencia
+      if (video) {
+        renderAt(nowT());
+        updateWipe(nowT());
+      }
     }
 
     function toggleExtraSources(): void {
@@ -468,6 +504,8 @@ export default defineContentScript({
           if (typeof s.extraSources === 'boolean') settings.extraSources = s.extraSources;
           if (typeof s.debug === 'boolean') settings.debug = s.debug;
           if (typeof s.fontScale === 'number' && s.fontScale > 0) settings.fontScale = s.fontScale;
+          if (typeof s.karaokeLines === 'number') settings.karaokeLines = Math.min(3, Math.max(1, Math.round(s.karaokeLines)));
+          if (typeof s.bgOpacity === 'number') settings.bgOpacity = Math.min(1, Math.max(0, s.bgOpacity));
         }
       } catch {
         /* usa los valores por defecto */
@@ -500,60 +538,103 @@ export default defineContentScript({
     // --- Resaltado "wipe" (karaoke) -----------------------------------------
     const WIPE_BRIGHT = '#ffffff';
     const WIPE_DIM = 'rgba(255,255,255,0.4)';
+    // Contorno oscuro para leer sobre fondos claros del video (con el fondo a baja opacidad).
+    // NO se aplica a la línea con wipe: su relleno es transparente y la sombra se vería a través.
+    const TEXT_SHADOW = '0 1px 2px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.7)';
 
-    function applyWipeBase(): void {
-      if (!curEl) return;
+    function applyWipeBaseEl(el: HTMLElement): void {
       // El texto se pinta con el gradiente de fondo recortado a las letras.
-      curEl.style.color = 'transparent';
-      curEl.style.backgroundClip = 'text';
-      curEl.style.setProperty('-webkit-text-fill-color', 'transparent');
-      curEl.style.setProperty('-webkit-background-clip', 'text');
+      el.style.opacity = '1';
+      el.style.textShadow = 'none';
+      el.style.color = 'transparent';
+      el.style.backgroundClip = 'text';
+      el.style.setProperty('-webkit-text-fill-color', 'transparent');
+      el.style.setProperty('-webkit-background-clip', 'text');
     }
 
-    function clearWipe(): void {
-      if (!curEl) return;
-      curEl.style.color = WIPE_BRIGHT;
-      curEl.style.backgroundImage = 'none';
-      curEl.style.removeProperty('-webkit-text-fill-color');
+    function clearWipeEl(el: HTMLElement, dim: boolean): void {
+      el.style.color = '';
+      el.style.backgroundClip = '';
+      el.style.backgroundImage = 'none';
+      el.style.removeProperty('-webkit-text-fill-color');
+      el.style.textShadow = TEXT_SHADOW;
+      el.style.opacity = dim ? '0.55' : '1';
     }
 
     function updateWipe(t: number): void {
-      if (!curEl || !activeLine) return;
+      const el = kEls[0];
+      if (!el || !activeLine) return;
       const p = (wipeProgress(t, activeLine.tStart, activeLine.tEnd) * 100).toFixed(2);
-      curEl.style.backgroundImage = `linear-gradient(90deg, ${WIPE_BRIGHT} ${p}%, ${WIPE_DIM} ${p}%)`;
+      el.style.backgroundImage = `linear-gradient(90deg, ${WIPE_BRIGHT} ${p}%, ${WIPE_DIM} ${p}%)`;
     }
 
-    function renderCurrent(line: Line | null): void {
-      if (!curEl) return;
-      const text = line ? lineText(line) : '';
-      currentText = text;
-      if (!text) {
-        curEl.textContent = '';
-        clearWipe();
+    /** Pinta una línea en su elemento; la activa lleva wipe, las próximas van tenues. */
+    function renderLineInto(el: HTMLElement, line: Line, isActive: boolean): void {
+      const text = lineText(line);
+      el.dataset.t = text;
+      el.style.display = '';
+      if (isActive) {
+        applyWipeBaseEl(el);
+        if (video) updateWipe(nowT());
+      } else {
+        clearWipeEl(el, true);
+      }
+      el.textContent = text; // texto plano ya; mejora con furigana al tokenizar
+      if (settings.furigana) {
+        ensureTokenizer()
+          .tokenize(text)
+          .then((tokens) => {
+            if (el.dataset.t === text) renderRubyInto(el, tokensToRuby(tokens));
+          })
+          .catch(() => {});
+      }
+    }
+
+    function updateRomaji(line: Line): void {
+      if (!settings.romaji) {
         showRomaji('');
         return;
       }
-      applyWipeBase();
-      if (video) updateWipe(nowT()); // pinta el gradiente ya (evita texto invisible)
-      if (!settings.furigana && !settings.romaji) {
-        curEl.textContent = text;
-        showRomaji('');
-        return;
-      }
-      const tk = ensureTokenizer();
-      // Pinta texto plano ya; si está cacheado, lo mejora de inmediato; si no, al volver.
-      curEl.textContent = text;
-      showRomaji('');
-      tk.tokenize(text)
+      const text = lineText(line);
+      ensureTokenizer()
+        .tokenize(text)
         .then((tokens) => {
-          if (currentText !== text || !curEl) return; // el usuario ya cambió de línea/video
-          if (settings.furigana) renderRubyInto(curEl, tokensToRuby(tokens));
-          else curEl.textContent = text;
-          showRomaji(settings.romaji ? tokensToRomaji(tokens) : '');
+          if (currentText === text) showRomaji(tokensToRomaji(tokens));
         })
-        .catch(() => {
-          /* si el tokenizador falla, se queda el texto plano */
-        });
+        .catch(() => {});
+    }
+
+    function clearBlock(): void {
+      for (const el of kEls) {
+        el.textContent = '';
+        el.style.display = 'none';
+      }
+      activeLine = null;
+      currentText = '';
+      showRomaji('');
+    }
+
+    /** Render del bloque de karaoke a partir de la línea activa `i`. */
+    function renderBlock(i: number): void {
+      if (!doc) return;
+      const lines = doc.lines;
+      if (i < 0) {
+        clearBlock();
+        return;
+      }
+      const n = Math.min(3, Math.max(1, settings.karaokeLines));
+      activeLine = lines[i]!;
+      currentText = lineText(lines[i]!);
+      for (let k = 0; k < kEls.length; k++) {
+        const el = kEls[k]!;
+        const line = lines[i + k];
+        if (k < n && line) renderLineInto(el, line, k === 0);
+        else {
+          el.textContent = '';
+          el.style.display = 'none';
+        }
+      }
+      updateRomaji(lines[i]!);
     }
 
     // --- Sincronización por línea -------------------------------------------
@@ -580,15 +661,17 @@ export default defineContentScript({
       if (i === lastIndex) return;
       lastIndex = i;
 
-      const within = i >= 0 && t < lines[i]!.tEnd;
-      activeLine = within ? lines[i]! : null;
+      const n = Math.min(3, Math.max(1, settings.karaokeLines));
       if (prevEl) prevEl.textContent = i > 0 ? lineText(lines[i - 1]!) : '';
-      if (nextEl) nextEl.textContent = i + 1 < lines.length ? lineText(lines[i + 1]!) : '';
-      renderCurrent(activeLine);
+      if (nextEl) nextEl.textContent = i >= 0 && i + n < lines.length ? lineText(lines[i + n]!) : '';
+      renderBlock(i);
 
-      // Pre-tokeniza la siguiente línea (suaviza la transición).
-      if ((settings.furigana || settings.romaji) && i + 1 < lines.length) {
-        void ensureTokenizer().tokenize(lineText(lines[i + 1]!)).catch(() => {});
+      // Pre-tokeniza las próximas líneas del bloque + la de después (suaviza transiciones).
+      if (settings.furigana || settings.romaji) {
+        for (let k = 1; k <= n; k++) {
+          const l = lines[i + k];
+          if (l) void ensureTokenizer().tokenize(lineText(l)).catch(() => {});
+        }
       }
     }
 
@@ -667,10 +750,9 @@ export default defineContentScript({
         doc = null;
         setStatus('🙈 sin letra para este video');
         dbg(`✗ sin letra · ${Math.round(performance.now() - t0)}ms (prueba NetEase 🔄 o revisa el título)`);
-        activeLine = null;
         if (prevEl) prevEl.textContent = '';
         if (nextEl) nextEl.textContent = '';
-        renderCurrent(null);
+        clearBlock();
       }
     }
 
@@ -713,8 +795,8 @@ export default defineContentScript({
       }
       currentVideoId = query.videoId;
       await loadOffset(query.videoId); // desfase guardado para esta canción
-      // Si el usuario eligió una letra manual para este video, se aplica (salvo re-buscar).
-      if (!force && (await loadManualPick(query.videoId))) return;
+      // La elección manual se guarda en la MISMA caché por videoId, así requestLyrics
+      // la sirve sin red en la próxima visita.
       void requestLyrics(query, force);
     }
 
@@ -736,9 +818,10 @@ export default defineContentScript({
       currentText = '';
       lastIndex = -2;
       document.getElementById(OVERLAY_ID)?.remove();
-      overlay = statusEl = prevEl = curEl = romajiEl = nextEl = debugEl = offsetEl = pickEl = null;
+      overlay = statusEl = prevEl = romajiEl = nextEl = debugEl = offsetEl = pickEl = null;
+      kEls.length = 0;
       furiBtn = romaBtn = neteaseBtn = reloadBtn = debugBtn = null;
-      fontDownBtn = fontUpBtn = offDownBtn = offUpBtn = editBtn = null;
+      fontDownBtn = fontUpBtn = offDownBtn = offUpBtn = editBtn = linesBtn = bgBtn = null;
       debugLines.length = 0;
       offset = 0;
       currentVideoId = '';

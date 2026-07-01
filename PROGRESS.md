@@ -12,8 +12,20 @@
   texto plano interpolado), furigana (offscreen kuromoji), karaoke "wipe", on/off por icono,
   panel debug 🐞, **controles de tamaño (A−/A+), desfase por canción (⏪/⏩) y búsqueda manual
   con selección (✏️)**. 79 tests verdes.
-- **▶️ PRÓXIMA:** **Fase 8 — pulido** (icono propio, README, accesibilidad/rendimiento, e2e).
-  *(Fase 7 = alineación forzada offline, opcional, no iniciada.)*
+- **Fase 8 (rama `feat/fase-8-polish`, CÓDIGO COMPLETO):** icono propio (16/32/48/128 + generador
+  reproducible), README, **bloque de karaoke multi-línea** (botón ≡: 1–3 líneas, activa con wipe +
+  próximas tenues, ajuste `karaokeLines` persistido; refactor `renderCurrent` →
+  `renderBlock`/`renderLineInto`), **pick manual cacheado por `videoId`** en la caché normal del
+  background (`GET_BY_ID` acepta `videoId`; eliminado `manualPick:`/`loadManualPick`), y
+  **legibilidad sobre cualquier fondo** (pedido del usuario): botón **🌓** que cicla la opacidad
+  del fondo del overlay (25/50/75/90 %, ajuste `bgOpacity` persistido) + `text-shadow` oscuro en
+  las líneas sin wipe (en la activa no: el relleno transparente del wipe dejaría ver la sombra).
+  Typecheck/build/79 tests verdes.
+- **▶️ PRÓXIMA (última):** el usuario prueba en Chrome (recargar la extensión): botón ≡ (1→2→3
+  líneas), pick manual ✏️ + recarga = caché, y botón 🌓 (opacidad, letra legible en fondo claro).
+  Si OK → `git checkout main && git merge --no-ff feat/fase-8-polish && git tag fase-8 &&
+  git branch -d feat/fase-8-polish`. **Con eso el proyecto queda CERRADO** (Fase 7 = alineación
+  forzada offline y e2e Playwright quedan como opcionales futuros).
 - **Pendiente/ideas:** Options/popup con prioridad de fuentes; atajos de teclado para offset;
   más fuentes opt-in. Ver bitácora para detalle por fase.
 

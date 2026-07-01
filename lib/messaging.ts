@@ -27,6 +27,8 @@ export interface GetByIdMessage {
   source: string;
   id: string | number;
   durationSec?: number;
+  /** Si se indica, la letra se cachea por este videoId (revisitas instantáneas). */
+  videoId?: string;
 }
 
 /** Mensajes que el content script envía al background. */
