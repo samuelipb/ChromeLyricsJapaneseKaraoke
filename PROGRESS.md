@@ -21,11 +21,14 @@
   del fondo del overlay (25/50/75/90 %, ajuste `bgOpacity` persistido) + `text-shadow` oscuro en
   las líneas sin wipe (en la activa no: el relleno transparente del wipe dejaría ver la sombra).
   Typecheck/build/79 tests verdes.
-- **▶️ PRÓXIMA (última):** el usuario prueba en Chrome (recargar la extensión): botón ≡ (1→2→3
-  líneas), pick manual ✏️ + recarga = caché, y botón 🌓 (opacidad, letra legible en fondo claro).
-  Si OK → `git checkout main && git merge --no-ff feat/fase-8-polish && git tag fase-8 &&
-  git branch -d feat/fase-8-polish`. **Con eso el proyecto queda CERRADO** (Fase 7 = alineación
-  forzada offline y e2e Playwright quedan como opcionales futuros).
+- **✅ PROYECTO CERRADO:** Fase 8 mergeada a `main` + tag `fase-8`. Versión **1.0.0** (tag
+  `v1.0.0`) y paquete de distribución generado con `npm run zip` →
+  `.output/lyrics-jp-furigana-karaoke-1.0.0-chrome.zip` (15,5 MB; el grueso es el diccionario
+  kuromoji). Para publicar en Chrome Web Store: cuenta de desarrollador (5 USD única vez) en
+  https://chrome.google.com/webstore/devconsole → subir el zip → rellenar ficha + declaración de
+  privacidad/permisos → visibilidad recomendada **"No listado"** (unlisted) por el tema de
+  copyright de letras. *(Fase 7 = alineación forzada offline y e2e Playwright quedan como
+  opcionales futuros.)*
 - **Pendiente/ideas:** Options/popup con prioridad de fuentes; atajos de teclado para offset;
   más fuentes opt-in. Ver bitácora para detalle por fase.
 

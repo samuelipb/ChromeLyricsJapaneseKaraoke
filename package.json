@@ -2,7 +2,7 @@
   "name": "lyrics-jp-furigana-karaoke",
   "description": "Extensión Chrome MV3: letras japonesas con furigana y karaoke sobre YouTube (uso personal/educativo).",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
