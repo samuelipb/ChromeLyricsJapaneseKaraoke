@@ -19,8 +19,9 @@ con el video (resaltado "wipe" línea a línea).
 - **Fuentes**: [LRCLIB](https://lrclib.net) (gratis, sin clave) por defecto; **NetEase**
   (music.163.com) **opt-in** para más cobertura japonesa; texto plano **interpolado** como último
   recurso.
-- **Controles en el overlay**: furigana / romaji, tamaño de letra, **desfase (offset) por canción**,
-  **búsqueda manual con selección**, re-buscar, panel de debug.
+- **Controles en el overlay**: furigana / romaji, tamaño de letra, **líneas visibles (1–3)**,
+  **opacidad del fondo**, **desfase (offset) por canción**, **búsqueda manual con selección**,
+  re-buscar, panel de debug.
 - **Encendido/apagado** rápido desde el icono de la barra (insignia `OFF`).
 - **Privacidad**: sin telemetría; la caché y las preferencias viven solo en `chrome.storage`.
 
@@ -34,6 +35,8 @@ con el video (resaltado "wipe" línea a línea).
 | **🔄** | Re-buscar (ignora la caché de este video) |
 | **🐞** | Panel de debug (qué detecta y cómo busca) |
 | **A− / A+** | Tamaño de la letra |
+| **≡1/≡2/≡3** | Líneas de karaoke a la vez (activa + próximas) |
+| **🌓** | Opacidad del fondo (25 → 50 → 75 → 90 %) — súbela si el video no deja leer la letra |
 | **⏪ / ⏩** | Adelantar/atrasar la letra (offset por canción) |
 | **✏️** | Búsqueda manual: escribe un término (o pega una URL de `lrclib.net/search/…`) y elige de la lista |
 | **icono de la barra** | Encender/apagar la extensión |
@@ -78,6 +81,7 @@ node scripts/gen-icons.cjs   # regenera los iconos
 
 ## 📋 Estado
 
-Fases 0–6 completas (ver `Plan.md` y `PROGRESS.md`): andamiaje, esqueleto MV3, detección + LRCLIB,
-furigana, multi-fuente, karaoke wipe, y controles (tamaño/offset/búsqueda manual). Pendiente
-(opcional): alineación forzada offline para timing exacto por palabra y una página de Opciones.
+Fases 0–8 completas (ver `Plan.md` y `PROGRESS.md`): andamiaje, esqueleto MV3, detección + LRCLIB,
+furigana, multi-fuente, karaoke wipe, controles (tamaño/offset/búsqueda manual/líneas/opacidad),
+icono y README. Pendiente (opcional): alineación forzada offline para timing exacto por palabra
+y una página de Opciones.

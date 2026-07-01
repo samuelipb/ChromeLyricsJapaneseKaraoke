@@ -32,6 +32,8 @@ interface Settings {
   fontScale: number;
   /** Cuántas líneas de karaoke mostrar a la vez (activa + próximas), 1–3. */
   karaokeLines: number;
+  /** Opacidad del fondo del overlay (0–1); subir cuando el video no deja leer la letra. */
+  bgOpacity: number;
 }
 
 export default defineContentScript({
@@ -50,6 +52,7 @@ export default defineContentScript({
       debug: false,
       fontScale: 1,
       karaokeLines: 2,
+      bgOpacity: 0.74,
     };
     const debugLines: string[] = [];
     let enabled = true; // encendido/apagado global (icono de la extensión)
@@ -76,6 +79,7 @@ export default defineContentScript({
     let offUpBtn: HTMLButtonElement | null = null;
     let offsetEl: HTMLElement | null = null;
     let linesBtn: HTMLButtonElement | null = null;
+    let bgBtn: HTMLButtonElement | null = null;
     let editBtn: HTMLButtonElement | null = null;
     let pickEl: HTMLElement | null = null;
     let video: HTMLVideoElement | null = null;
@@ -128,7 +132,7 @@ export default defineContentScript({
         zIndex: '2147483647',
         maxWidth: 'min(80vw, 900px)',
         padding: '10px 16px',
-        background: 'rgba(0, 0, 0, 0.74)',
+        background: `rgba(0, 0, 0, ${settings.bgOpacity})`,
         color: '#fff',
         textAlign: 'center',
         borderRadius: '12px',
@@ -163,6 +167,8 @@ export default defineContentScript({
       editBtn.title = 'Búsqueda manual de letra (elige de una lista)';
       linesBtn = makeBtn(`≡${settings.karaokeLines}`, false);
       linesBtn.title = 'Líneas de karaoke a la vez (1–3)';
+      bgBtn = makeBtn('🌓', false);
+      bgBtn.title = 'Opacidad del fondo (25 → 50 → 75 → 90 %)';
 
       furiBtn.addEventListener('click', () => toggle('furigana'));
       romaBtn.addEventListener('click', () => toggle('romaji'));
@@ -175,17 +181,18 @@ export default defineContentScript({
       offUpBtn.addEventListener('click', () => changeOffset(+0.2));
       editBtn.addEventListener('click', () => void manualSearch());
       linesBtn.addEventListener('click', () => changeLines());
+      bgBtn.addEventListener('click', () => changeBgOpacity());
       bar.append(
         statusEl, furiBtn, romaBtn, neteaseBtn, reloadBtn, debugBtn,
-        fontDownBtn, fontUpBtn, linesBtn, offDownBtn, offsetEl, offUpBtn, editBtn,
+        fontDownBtn, fontUpBtn, linesBtn, bgBtn, offDownBtn, offsetEl, offUpBtn, editBtn,
       );
 
       prevEl = document.createElement('div');
       romajiEl = document.createElement('div');
       nextEl = document.createElement('div');
-      Object.assign(prevEl.style, { fontSize: '15px', opacity: '0.45' });
-      Object.assign(romajiEl.style, { fontSize: '13px', opacity: '0.8', display: 'none' });
-      Object.assign(nextEl.style, { fontSize: '15px', opacity: '0.45' });
+      Object.assign(prevEl.style, { fontSize: '15px', opacity: '0.45', textShadow: TEXT_SHADOW });
+      Object.assign(romajiEl.style, { fontSize: '13px', opacity: '0.8', display: 'none', textShadow: TEXT_SHADOW });
+      Object.assign(nextEl.style, { fontSize: '15px', opacity: '0.45', textShadow: TEXT_SHADOW });
 
       // Bloque de karaoke: kEls[0] = línea activa (con wipe); kEls[1..] = próximas.
       // width:fit-content + margin auto → la caja se ajusta al texto y queda centrada,
@@ -247,6 +254,14 @@ export default defineContentScript({
       if (kEls[2]) kEls[2].style.fontSize = `${18 * s}px`;
       if (romajiEl) romajiEl.style.fontSize = `${13 * s}px`;
       if (nextEl) nextEl.style.fontSize = `${15 * s}px`;
+    }
+
+    function changeBgOpacity(): void {
+      const steps = [0.25, 0.5, 0.74, 0.9];
+      const i = steps.findIndex((v) => v > settings.bgOpacity + 0.01);
+      settings.bgOpacity = steps[i >= 0 ? i : 0]!; // 25 → 50 → 75 → 90 → 25
+      if (overlay) overlay.style.background = `rgba(0, 0, 0, ${settings.bgOpacity})`;
+      void browser.storage.local.set({ [SETTINGS_KEY]: settings });
     }
 
     function changeLines(): void {
@@ -490,6 +505,7 @@ export default defineContentScript({
           if (typeof s.debug === 'boolean') settings.debug = s.debug;
           if (typeof s.fontScale === 'number' && s.fontScale > 0) settings.fontScale = s.fontScale;
           if (typeof s.karaokeLines === 'number') settings.karaokeLines = Math.min(3, Math.max(1, Math.round(s.karaokeLines)));
+          if (typeof s.bgOpacity === 'number') settings.bgOpacity = Math.min(1, Math.max(0, s.bgOpacity));
         }
       } catch {
         /* usa los valores por defecto */
@@ -522,10 +538,14 @@ export default defineContentScript({
     // --- Resaltado "wipe" (karaoke) -----------------------------------------
     const WIPE_BRIGHT = '#ffffff';
     const WIPE_DIM = 'rgba(255,255,255,0.4)';
+    // Contorno oscuro para leer sobre fondos claros del video (con el fondo a baja opacidad).
+    // NO se aplica a la línea con wipe: su relleno es transparente y la sombra se vería a través.
+    const TEXT_SHADOW = '0 1px 2px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.7)';
 
     function applyWipeBaseEl(el: HTMLElement): void {
       // El texto se pinta con el gradiente de fondo recortado a las letras.
       el.style.opacity = '1';
+      el.style.textShadow = 'none';
       el.style.color = 'transparent';
       el.style.backgroundClip = 'text';
       el.style.setProperty('-webkit-text-fill-color', 'transparent');
@@ -537,6 +557,7 @@ export default defineContentScript({
       el.style.backgroundClip = '';
       el.style.backgroundImage = 'none';
       el.style.removeProperty('-webkit-text-fill-color');
+      el.style.textShadow = TEXT_SHADOW;
       el.style.opacity = dim ? '0.55' : '1';
     }
 
@@ -800,7 +821,7 @@ export default defineContentScript({
       overlay = statusEl = prevEl = romajiEl = nextEl = debugEl = offsetEl = pickEl = null;
       kEls.length = 0;
       furiBtn = romaBtn = neteaseBtn = reloadBtn = debugBtn = null;
-      fontDownBtn = fontUpBtn = offDownBtn = offUpBtn = editBtn = linesBtn = null;
+      fontDownBtn = fontUpBtn = offDownBtn = offUpBtn = editBtn = linesBtn = bgBtn = null;
       debugLines.length = 0;
       offset = 0;
       currentVideoId = '';
